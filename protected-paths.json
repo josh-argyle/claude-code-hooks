@@ -1,0 +1,29 @@
+{
+  "protectedPaths": [
+    {
+      "path": "/src/config/",
+      "message": "Configuration files are protected and should not be modified without careful consideration",
+      "blockBash": true
+    },
+    {
+      "path": "/database/",
+      "message": "Database files and schemas are protected from modification",
+      "blockBash": true
+    },
+    {
+      "path": "/production/",
+      "message": "Production configuration and data files are protected",
+      "blockBash": true
+    },
+    {
+      "path": "/.env",
+      "message": "Environment files contain sensitive configuration and are protected",
+      "blockBash": true
+    },
+    {
+      "path": "/secrets/",
+      "message": "Secret files and credentials are protected from modification",
+      "blockBash": true
+    }
+  ]
+}
