@@ -32,6 +32,26 @@
           {
             "type": "command",
             "command": "/home/io/.claude/hooks/block-rm-command.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/io/.claude/hooks/block-git-destructive.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/io/.claude/hooks/block-force-push.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/io/.claude/hooks/block-branch-delete.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/io/.claude/hooks/block-mass-file-ops.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/io/.claude/hooks/block-database-drops.sh"
           }
         ]
       },
