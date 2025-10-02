@@ -1,0 +1,12 @@
+node_modules/
+public/js/lib/
+docs/
+backup/
+database-migration/
+scripts/
+test-results/
+playwright-report/
+*.min.js
+*.bundle.js
+css-selector-*.json
+*.lock

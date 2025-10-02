@@ -1,0 +1,91 @@
+/**
+ * Note 4: Early childhood centres additional requirements
+ *
+ * CAS2 Paragraph 2.2.4 - Additional requirements for early childhood centres
+ *
+ * TYPE: Hybrid (conditionally adds Type 7 + tracks compliance)
+ *
+ * Condition (a): Escape height ≤ 2.0m (single storey) + dedicated sleeping areas
+ *   - Requires supplementary smoke detectors (NZS 4512)
+ *   - Does NOT add systems (compliance tracking only)
+ *
+ * Condition (b): Escape height > 2.0m
+ *   - ADDS Type 7 system (emergency warning)
+ *   - Requires 2+ places of safety with fire separations
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'CA' for this note to apply)
+ * @param {boolean} [firecell.isEarlyChildhoodCentre] - Whether this CA area is an early childhood centre
+ * @param {number} [firecell.escapeHeight] - Escape height in meters (determines which condition applies)
+ * @param {boolean} [firecell.hasDedicatedSleepingAreas] - For condition (a): whether dedicated sleeping areas exist
+ * @param {boolean} [firecell.supplementarySmokeDetectorsCompliant] - For condition (a): NZS 4512 compliance
+ * @param {boolean} [firecell.placesOfSafetyCompliant] - For condition (b): places of safety compliance
+ * @param {Object} [projectModel] - Project-level parameters (not used for this note)
+ * @param {Array} [allFirecells] - All building firecells (not used for this note)
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.requiresType7] - Whether Type 7 system must be added (condition b only)
+ * @returns {Array<string>} [returns.additionalSystems] - System codes to add (e.g., ['7'])
+ * @returns {Object} [returns.complianceInfo] - Detailed compliance tracking information
+ */
+function evaluateNote4(firecell, projectModel, allFirecells = []) {
+  // Handle null/undefined firecell parameter
+  if (!firecell || typeof firecell !== 'object') {
+    return { applies: false };
+  }
+
+  // Note 4 only applies to CA (Crowd Activities) risk group areas that are early childhood centres
+  if (firecell.riskGroup !== 'CA' || firecell.isEarlyChildhoodCentre !== true) {
+    return { applies: false };
+  }
+
+  // Note 4 applies - determine which conditions apply based on escape height
+  const escapeHeight = firecell.escapeHeight || 0;
+  const result = {
+    applies: true,
+    requiresType7: false,
+    additionalSystems: [],
+    complianceInfo: {
+      paragraph: '2.2.4'
+    }
+  };
+
+  // ===== CONDITION (a): Escape height ≤ 2.0m (single storey) =====
+  if (escapeHeight <= 2.0) {
+    const hasDedicatedSleepingAreas = firecell.hasDedicatedSleepingAreas === true;
+
+    if (hasDedicatedSleepingAreas) {
+      const supplementaryCompliant = firecell.supplementarySmokeDetectorsCompliant === true;
+
+      result.complianceInfo.supplementarySmokeDetectors = {
+        required: true,
+        location: 'Dedicated sleeping areas',
+        standard: 'NZS 4512',
+        compliant: supplementaryCompliant,
+        paragraph: '2.2.4(a)'
+      };
+    }
+  }
+
+  // ===== CONDITION (b): Escape height > 2.0m =====
+  if (escapeHeight > 2.0) {
+    // (b)(i): Type 7 system SHALL be installed throughout building
+    result.requiresType7 = true;
+    result.additionalSystems.push('7');
+
+    // (b)(ii) & (iii): Places of safety requirements
+    const placesOfSafetyCompliant = firecell.placesOfSafetyCompliant === true;
+
+    result.complianceInfo.placesOfSafety = {
+      minimumRequired: 2,
+      requiresFireSeparations: true,
+      requiresDirectAccessToSafePath: true,
+      compliant: placesOfSafetyCompliant,
+      paragraph: '2.2.4(b)(ii)&(iii)'
+    };
+  }
+
+  return result;
+}
+
+module.exports = evaluateNote4;

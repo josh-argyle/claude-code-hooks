@@ -1,0 +1,159 @@
+const evaluateNote4 = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-4-evaluator');
+
+describe('Note 4 Evaluator - CA Early Childhood Centre Additional Requirements', () => {
+  describe('Applicability', () => {
+    test('should not apply to SM risk group', () => {
+      const firecell = { riskGroup: 'SM' };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+      expect(result.requiresAdditionalSystems).toBeUndefined();
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('should not apply to SI risk group', () => {
+      const firecell = { riskGroup: 'SI' };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WB risk group', () => {
+      const firecell = { riskGroup: 'WB' };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WS risk group', () => {
+      const firecell = { riskGroup: 'WS' };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to VP risk group', () => {
+      const firecell = { riskGroup: 'VP' };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to CA risk group that is NOT an early childhood centre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: false
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to CA risk group with missing isEarlyChildhoodCentre', () => {
+      const firecell = {
+        riskGroup: 'CA'
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should apply to CA risk group that is an early childhood centre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresAdditionalSystems).toBeDefined();
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('Additional Requirements', () => {
+    test('should require additional systems for early childhood centre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresAdditionalSystems).toBe(true);
+      expect(result.reason).toBe('Early childhood centre - refer to Paragraph 2.2.4 for additional requirements');
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle null firecell', () => {
+      const result = evaluateNote4(null);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle undefined firecell', () => {
+      const result = evaluateNote4(undefined);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle non-object firecell', () => {
+      const result = evaluateNote4('not an object');
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle null isEarlyChildhoodCentre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: null
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle undefined isEarlyChildhoodCentre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: undefined
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle non-boolean isEarlyChildhoodCentre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: 'yes'
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should only apply when isEarlyChildhoodCentre is exactly true', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: 1
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason for early childhood centre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true
+      };
+      const result = evaluateNote4(firecell);
+
+      expect(result.reason).toBe('Early childhood centre - refer to Paragraph 2.2.4 for additional requirements');
+    });
+  });
+});

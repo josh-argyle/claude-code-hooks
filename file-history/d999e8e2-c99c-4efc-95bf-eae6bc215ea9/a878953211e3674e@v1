@@ -1,0 +1,35 @@
+const express = require('express');
+const userController = require('../controllers/userController');
+const { requireRoles } = require('../middleware/authMiddleware');
+
+const router = express.Router();
+
+// Basic user operations (existing)
+router.get('/', requireRoles(['user']), userController.getAllUsers);
+router.get('/current', requireRoles(['user']), userController.getCurrentUser);
+router.get('/foreman', requireRoles(['user']), userController.getForemanUsers);
+router.get('/project-managers', requireRoles(['user']), userController.getProjectManagerUsers);
+router.get('/installers', requireRoles(['project_manager', 'admin']), userController.getInstallerUsers);
+router.post('/switch-user', requireRoles(['user']), userController.switchUser);
+
+// Admin-only user management operations
+router.get('/roles', requireRoles(['project_manager', 'admin']), userController.getAllRoles);
+router.get('/profit-centres', requireRoles(['project_manager', 'admin']), userController.getAllProfitCentres);
+router.post('/', requireRoles(['project_manager', 'admin']), userController.createUser);
+router.get('/:id/full', requireRoles(['project_manager', 'admin']), userController.getUserFull);
+router.put('/:id', requireRoles(['project_manager', 'admin']), userController.updateUser);
+router.put('/:id/contacts', requireRoles(['project_manager', 'admin']), userController.updateUserContacts);
+router.put('/:id/roles', requireRoles(['project_manager', 'admin']), userController.updateUserRoles);
+router.put('/:id/preferences', requireRoles(['project_manager', 'admin']), userController.updateUserPreferences);
+router.put('/:id/workbench', requireRoles(['project_manager', 'admin']), userController.updateWorkbenchMapping);
+router.put('/:id/password', requireRoles(['project_manager', 'admin']), userController.updateUserPassword);
+router.delete('/:id', requireRoles(['project_manager', 'admin']), userController.deactivateUser);
+
+// Purchase order limits
+router.get('/:id/purchase-order-limit', requireRoles(['user']), userController.getUserPurchaseOrderLimit);
+router.put('/:id/purchase-order-limit', requireRoles(['project_manager', 'admin']), userController.updateUserPurchaseOrderLimit);
+
+// Basic user info (must be last to avoid conflicts)
+router.get('/:id', requireRoles(['user']), userController.getUser);
+
+module.exports = router;

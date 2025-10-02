@@ -1,0 +1,521 @@
+const evaluateNote10 = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-10-evaluator');
+
+describe('Note 10 Evaluator - VP Minimum Type 3 Requirement in Buildings with Automatic Fire Alarms', () => {
+  describe('Applicability', () => {
+    test('should not apply to non-VP risk groups', () => {
+      const nonVPRiskGroups = ['SM', 'SI', 'CA', 'WB', 'WS'];
+
+      nonVPRiskGroups.forEach(riskGroup => {
+        const firecell = { riskGroup };
+        const result = evaluateNote10(firecell, {}, []);
+
+        expect(result.applies).toBe(false);
+      });
+    });
+
+    test('should apply to VP risk group', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        fireSafetySystems: []
+      };
+      const result = evaluateNote10(firecell, {}, [firecell]);
+
+      expect(result.applies).toBe(true);
+    });
+  });
+
+  describe('CRITICAL: Type 2 Manual Alarm Should NOT Trigger Note 10', () => {
+    test('should NOT require Type 3 when only Type 2 (manual) alarms in building', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['2']  // Type 2 = Manual fire alarm
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: ['15', '18']
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);  // ← CRITICAL: Manual alarm should NOT trigger
+      expect(result.compliant).toBe(true);
+      expect(result.reason).toContain('No other firecells have fire alarm systems');
+    });
+
+    test('should NOT require Type 3 when only Type 2 with note annotation', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['2^1b']  // Type 2 with note reference
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should NOT require Type 3 when multiple non-VP firecells only have Type 2', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },
+        { riskGroup: 'WB', fireSafetySystems: ['2'] },
+        { riskGroup: 'SM', fireSafetySystems: ['2'] },
+        { riskGroup: 'VP', fireSafetySystems: ['15'] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+  });
+
+  describe('Automatic Fire Alarms Should Trigger Note 10', () => {
+    test('should require Type 3 when non-VP has Type 3 (automatic heat detector)', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['3']  // Type 3 = Automatic heat detector
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.reason).toContain('fire alarm systems');
+    });
+
+    test('should require Type 3 when non-VP has Type 4 (automatic smoke detector)', () => {
+      const firecells = [
+        {
+          riskGroup: 'WB',
+          fireSafetySystems: ['4^5']  // Type 4 with note
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when non-VP has Type 5 (automatic modified smoke)', () => {
+      const firecells = [
+        {
+          riskGroup: 'SM',
+          fireSafetySystems: ['5']  // Type 5 = Automatic modified smoke
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when non-VP has Type 7 (automatic sprinkler)', () => {
+      const firecells = [
+        {
+          riskGroup: 'SI',
+          fireSafetySystems: ['7^3']  // Type 7 = Automatic sprinkler
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('Mixed Manual and Automatic Alarms', () => {
+    test('should require Type 3 when building has BOTH Type 2 and Type 4', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },     // Manual
+        { riskGroup: 'WB', fireSafetySystems: ['4'] },     // Automatic
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[2], {}, firecells);
+
+      // Should trigger because Type 4 (automatic) is present
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when any non-VP has automatic (even if others only have manual)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },
+        { riskGroup: 'WB', fireSafetySystems: ['2'] },
+        { riskGroup: 'SM', fireSafetySystems: ['5'] },  // ← This one has automatic
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('Cross-Firecell Logic', () => {
+    test('should ignore VP firecells when checking for fire alarms', () => {
+      const firecells = [
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: ['4']  // VP has Type 4, but shouldn't trigger for itself
+        },
+        {
+          id: 'VP-2',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should NOT require Type 3 because only VP firecells have alarms
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should check ALL non-VP firecells in building', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'WB', fireSafetySystems: [] },
+        { riskGroup: 'SM', fireSafetySystems: ['4'] },  // ← Only this one has alarm
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should apply requirement to ALL VP firecells in building', () => {
+      const firecells = [
+        { id: 'CA-1', riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { id: 'VP-1', riskGroup: 'VP', fireSafetySystems: [] },
+        { id: 'VP-2', riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const vp1Result = evaluateNote10(firecells[1], {}, firecells);
+      const vp2Result = evaluateNote10(firecells[2], {}, firecells);
+
+      // Both VP firecells should have same requirement
+      expect(vp1Result.requiresMinType3).toBe(true);
+      expect(vp2Result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('System Code Parsing', () => {
+    test('should handle plain numeric system codes', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle string numeric system codes', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle system codes with note annotations', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4^5'] },  // "4^5" format
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle system codes with complex note annotations', () => {
+      const firecells = [
+        { riskGroup: 'SM', fireSafetySystems: ['7^3-9-10'] },  // Multiple notes
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('VP Compliance Checking', () => {
+    test('should mark VP as compliant when VP has Type 3', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 4 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 5 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['5'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 7 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['7'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as non-compliant when VP only has Type 2', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['2'] }  // Only manual alarm
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(false);
+    });
+
+    test('should mark VP as non-compliant when VP has no fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['15', '18'] }  // Other systems, no alarms
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(false);
+    });
+  });
+
+  describe('No Fire Alarm Scenarios', () => {
+    test('should not require Type 3 when building has no fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['9', '15', '18'] },  // No fire alarms
+        { riskGroup: 'WB', fireSafetySystems: ['15', '18'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[2], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should not require Type 3 when only VP firecells have fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }  // VP has alarm, but doesn't trigger for itself
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle missing fireSafetySystems array', () => {
+      const firecells = [
+        { riskGroup: 'CA' },  // No fireSafetySystems property
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle empty fireSafetySystems array', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle undefined allFirecells parameter', () => {
+      const firecell = { riskGroup: 'VP', fireSafetySystems: [] };
+      const result = evaluateNote10(firecell, {}, undefined);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle empty allFirecells array', () => {
+      const firecell = { riskGroup: 'VP', fireSafetySystems: [] };
+      const result = evaluateNote10(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle single-firecell building (VP only)', () => {
+      const firecells = [
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }
+      ];
+
+      const result = evaluateNote10(firecells[0], {}, firecells);
+
+      // VP is only firecell, so no non-VP firecells to trigger requirement
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle invalid system code format', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['invalid-code'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should gracefully handle invalid codes
+      expect(result.applies).toBe(true);
+    });
+
+    test('should handle non-array fireSafetySystems', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: '4' },  // String instead of array
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should handle gracefully (current code checks Array.isArray)
+      expect(result.applies).toBe(true);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when building has automatic fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.reason).toBeDefined();
+      expect(result.reason).toContain('fire alarm systems');
+      expect(result.reason).toContain('Type 3');
+    });
+
+    test('should provide clear reason when no automatic fire alarms present', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['15'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.reason).toContain('No other firecells');
+      expect(result.reason).toContain('no Type 3 requirement');
+    });
+
+    test('should provide clear reason when only manual alarms present', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },  // Manual only
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should treat manual alarms as "no fire alarm systems" for Note 10 purposes
+      expect(result.reason).toContain('No other firecells');
+    });
+  });
+
+  describe('Regression Tests', () => {
+    test('should maintain consistent behavior with existing cross-firecell notes', () => {
+      // This test ensures Note 10 behaves consistently with other cross-firecell notes
+      // like Note 9 (VP ventilation) in terms of checking ALL firecells
+
+      const firecells = [
+        { id: 'CA-1', riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { id: 'WB-1', riskGroup: 'WB', fireSafetySystems: [] },
+        { id: 'VP-1', riskGroup: 'VP', fireSafetySystems: [] },
+        { id: 'VP-2', riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const vp1Result = evaluateNote10(firecells[2], {}, firecells);
+      const vp2Result = evaluateNote10(firecells[3], {}, firecells);
+
+      // Both VP firecells should see CA's Type 4 and require Type 3
+      expect(vp1Result.requiresMinType3).toBe(true);
+      expect(vp2Result.requiresMinType3).toBe(true);
+
+      // VP-2 is compliant (has Type 3), VP-1 is not
+      expect(vp1Result.compliant).toBe(false);
+      expect(vp2Result.compliant).toBe(true);
+    });
+  });
+});

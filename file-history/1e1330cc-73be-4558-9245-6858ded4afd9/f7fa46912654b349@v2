@@ -1,0 +1,172 @@
+/**
+ * Firecell Validation Utilities
+ *
+ * Provides validation functions for firecell data, including floor identifier validation
+ * against project configuration.
+ *
+ * @module firecell-validator
+ */
+
+const { isValidFloor, getFloorOptions } = require('../utilities/floor-options');
+
+/**
+ * Validate firecell floor against project configuration
+ *
+ * @param {Object} firecell - Firecell object to validate
+ * @param {string} firecell.floor - Floor identifier to validate
+ * @param {Object} projectModel - Project model with floor configuration
+ * @param {number} [projectModel.numberOfFloorsAboveGround=1] - Number of floors above ground
+ * @param {number} [projectModel.numberOfBasementLevels=0] - Number of basement levels
+ * @returns {Object} Validation result
+ * @returns {boolean} returns.valid - Whether the floor is valid
+ * @returns {string} [returns.error] - Error message if validation failed
+ *
+ * @example
+ * const result = validateFirecellFloor(
+ *   { floor: 'G' },
+ *   { numberOfFloorsAboveGround: 3, numberOfBasementLevels: 2 }
+ * );
+ * // returns { valid: true }
+ *
+ * @example
+ * const result = validateFirecellFloor(
+ *   { floor: 'B3' },
+ *   { numberOfFloorsAboveGround: 3, numberOfBasementLevels: 2 }
+ * );
+ * // returns { valid: false, error: "Floor 'B3' is not valid for this building. Valid floors: B2, B1, G, 1, 2, 3" }
+ */
+function validateFirecellFloor(firecell, projectModel) {
+  if (!firecell.floor) {
+    return {
+      valid: false,
+      error: 'Floor is required for firecell',
+    };
+  }
+
+  const floorsAbove = projectModel.numberOfFloorsAboveGround || 1;
+  const basements = projectModel.numberOfBasementLevels || 0;
+
+  const isValid = isValidFloor(firecell.floor, floorsAbove, basements);
+
+  if (!isValid) {
+    const validFloors = getFloorOptions(floorsAbove, basements);
+
+    return {
+      valid: false,
+      error: `Floor '${firecell.floor}' is not valid for this building. Valid floors: ${validFloors.join(', ')}`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate all firecells in a project
+ *
+ * @param {Array<Object>} firecells - Array of firecell objects
+ * @param {Object} projectModel - Project model with floor configuration
+ * @returns {Object} Validation result
+ * @returns {boolean} returns.valid - Whether all firecells are valid
+ * @returns {Array<string>} [returns.errors] - Array of error messages (only if invalid)
+ *
+ * @example
+ * const result = validateAllFirecells(
+ *   [
+ *     { floor: 'G', riskGroup: 'CA' },
+ *     { floor: '1', riskGroup: 'SM' }
+ *   ],
+ *   { numberOfFloorsAboveGround: 2, numberOfBasementLevels: 0 }
+ * );
+ * // returns { valid: true }
+ */
+function validateAllFirecells(firecells, projectModel) {
+  const errors = [];
+
+  firecells.forEach((firecell, index) => {
+    const result = validateFirecellFloor(firecell, projectModel);
+    if (!result.valid) {
+      errors.push(`Firecell ${index + 1}: ${result.error}`);
+    }
+  });
+
+  if (errors.length > 0) {
+    return {
+      valid: false,
+      errors,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Check if all firecells with a specific risk group are on the same floor
+ *
+ * Used for Notes 1b and 1c evaluation (single-level building requirement)
+ *
+ * @param {Array<Object>} firecells - Array of all firecells in the building
+ * @param {string} riskGroup - Risk group to filter by (e.g., 'CA', 'WB')
+ * @returns {Object} Result
+ * @returns {boolean} returns.isSingleLevel - Whether all firecells of this risk group are on same floor
+ * @returns {string} [returns.floor] - The common floor (only if isSingleLevel is true)
+ * @returns {Array<string>} [returns.floors] - Array of unique floors found (only if isSingleLevel is false)
+ *
+ * @example
+ * const result = checkSingleLevel(
+ *   [
+ *     { floor: 'G', riskGroup: 'CA' },
+ *     { floor: 'G', riskGroup: 'CA' },
+ *     { floor: '1', riskGroup: 'SM' }
+ *   ],
+ *   'CA'
+ * );
+ * // returns { isSingleLevel: true, floor: 'G' }
+ *
+ * @example
+ * const result = checkSingleLevel(
+ *   [
+ *     { floor: 'G', riskGroup: 'CA' },
+ *     { floor: '1', riskGroup: 'CA' }
+ *   ],
+ *   'CA'
+ * );
+ * // returns { isSingleLevel: false, floors: ['G', '1'] }
+ */
+function checkSingleLevel(firecells, riskGroup) {
+  const filteredFirecells = firecells.filter(f => f.riskGroup === riskGroup);
+
+  if (filteredFirecells.length === 0) {
+    return { isSingleLevel: false, floors: [] };
+  }
+
+  // Get valid floor data - if any firecell has missing floor info, treat as multi-level
+  const floors = filteredFirecells
+    .map(f => f.floor)
+    .filter(floor => floor !== undefined && floor !== null && floor !== '');
+
+  const hasValidFloorData = floors.length === filteredFirecells.length;
+
+  if (!hasValidFloorData) {
+    return { isSingleLevel: false, floors: [] };
+  }
+
+  const uniqueFloors = [...new Set(floors)];
+
+  if (uniqueFloors.length === 1) {
+    return {
+      isSingleLevel: true,
+      floor: uniqueFloors[0],
+    };
+  }
+
+  return {
+    isSingleLevel: false,
+    floors: uniqueFloors,
+  };
+}
+
+module.exports = {
+  validateFirecellFloor,
+  validateAllFirecells,
+  checkSingleLevel,
+};

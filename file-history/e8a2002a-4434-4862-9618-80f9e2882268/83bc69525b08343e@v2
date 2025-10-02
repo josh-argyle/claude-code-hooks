@@ -1,0 +1,48 @@
+const { validateEscapeRoutes, calculateMinimumRouteWidths } = require('./calculator');
+
+/**
+ * Process escape routes for all firecells
+ * Validates route configuration and stores route requirements
+ * @param {ProjectModel} projectModel - The project model
+ * @returns {ProjectModel} Updated project model
+ */
+function processEscapeRoutes(projectModel) {
+  const firecells = projectModel.getAllFirecells();
+
+  for (let i = 0; i < firecells.length; i++) {
+    const firecell = firecells[i];
+
+    // Validate escape route configuration
+    const validation = validateEscapeRoutes(firecell, i);
+
+    // Throw error if validation failed
+    if (!validation.valid) {
+      throw new Error(validation.errors.join('; '));
+    }
+
+    // Log warnings if any
+    if (validation.warnings.length > 0) {
+      validation.warnings.forEach(warning => console.warn(warning));
+    }
+
+    // Store required routes count
+    projectModel.firecells[i].requiredEscapeRoutes = validation.requiredRoutes;
+
+    // Calculate minimum route widths
+    const minWidths = calculateMinimumRouteWidths(
+      firecell.riskGroup,
+      firecell.occupantLoad,
+      firecell.numberOfEscapeRoutes
+    );
+    projectModel.firecells[i].minimumRouteWidths = minWidths;
+
+    // Note: Travel distance limits calculation would go here
+    // For now, we focus on the critical properties for Note 1a
+  }
+
+  return projectModel;
+}
+
+module.exports = {
+  processEscapeRoutes
+};

@@ -1,0 +1,145 @@
+const { processOccupantLoads } = require('../../api/processors/occupant-load/orchestrator');
+const ProjectModel = require('../../api/models/project-model');
+
+describe('Occupant Load Processor Integration Tests', () => {
+  let projectModel;
+
+  beforeEach(() => {
+    projectModel = new ProjectModel();
+  });
+
+  test('should integrate with ProjectModel and calculate occupant loads for multiple firecells', () => {
+    // Add a variety of firecells that need occupant load calculation
+    projectModel.addFirecell({
+      riskGroup: 'CA',
+      occupantType: 'Office spaces',
+      // occupantLoad removed - will be calculated as 1000/10 = 100
+      escapeHeight: 5,
+      isSprinklered: true,
+      floorArea: 1000,
+      floor: 'G'
+    });
+
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Meeting rooms',
+      // occupantLoad removed - will be calculated as 500/2.5 = 200
+      escapeHeight: 3,
+      isSprinklered: false,
+      floorArea: 500,
+      floor: 'G'
+    });
+
+    projectModel.addFirecell({
+      riskGroup: 'WS',
+      occupantType: 'Bulk storage including racks and shelves',
+      // occupantLoad removed - will be calculated as 2000/100 = 20
+      escapeHeight: 4,
+      isSprinklered: true,
+      floorArea: 2000,
+      floor: 'G'
+    });
+
+    projectModel.addFirecell({
+      riskGroup: 'VP',
+      occupantType: 'Parking buildings, garages',
+      // occupantLoad removed - will be calculated as 800/50 = 16
+      escapeHeight: 2,
+      isSprinklered: false,
+      floorArea: 800,
+      floor: 'G'
+    });
+
+    // Add firecells that should NOT have calculation (SM, SI use bed spaces)
+    projectModel.addFirecell({
+      riskGroup: 'SM',
+      occupantType: 'Sleeping non institutional',
+      occupantLoad: 20, // Keep for SM (bed spaces)
+      escapeHeight: 8,
+      isSprinklered: true,
+      floorArea: 600,
+      floor: 'G'
+    });
+
+    const result = processOccupantLoads(projectModel);
+
+    // Check that the result is the same ProjectModel instance
+    expect(result).toBe(projectModel);
+
+    // Check total number of firecells
+    expect(result.getFirecellCount()).toBe(5);
+
+    // Check calculated occupant loads for firecells that need calculation
+    expect(result.firecells[0].occupantLoad).toBe(100); // CA: 1000 / 10 = 100
+    expect(result.firecells[0].calculatedOccupantLoad).toBe(100); // Backwards compat
+    expect(result.firecells[1].occupantLoad).toBe(200); // WB: 500 / 2.5 = 200
+    expect(result.firecells[1].calculatedOccupantLoad).toBe(200); // Backwards compat
+    expect(result.firecells[2].occupantLoad).toBe(20);  // WS: 2000 / 100 = 20
+    expect(result.firecells[2].calculatedOccupantLoad).toBe(20); // Backwards compat
+    expect(result.firecells[3].occupantLoad).toBe(16);  // VP: 800 / 50 = 16
+    expect(result.firecells[3].calculatedOccupantLoad).toBe(16); // Backwards compat
+
+    // Check that SM firecell does not have calculated occupant load
+    expect(result.firecells[4].calculatedOccupantLoad).toBeUndefined();
+
+    // Verify original data is preserved
+    expect(result.firecells[0].riskGroup).toBe('CA');
+    expect(result.firecells[0].occupantType).toBe('Office spaces');
+    expect(result.firecells[0].occupantLoad).toBe(100); // Calculated value (stored in primary field)
+    expect(result.firecells[0].escapeHeight).toBe(5);
+    expect(result.firecells[0].isSprinklered).toBe(true);
+    expect(result.firecells[0].floorArea).toBe(1000);
+  });
+
+  test('should handle edge cases and errors gracefully in integration', () => {
+    // Add a firecell with valid data first
+    projectModel.addFirecell({
+      riskGroup: 'CA',
+      occupantType: 'Office spaces',
+      // occupantLoad removed - will be calculated as 1000/10 = 100
+      escapeHeight: 5,
+      isSprinklered: true,
+      floorArea: 1000,
+      floor: 'G'
+    });
+
+    // Manually corrupt the occupant type after validation to test error handling
+    projectModel.firecells[0].occupantType = 'Non-existent Activity Type';
+
+    const result = processOccupantLoads(projectModel);
+
+    expect(result.firecells[0].occupantLoad).toBeNull();
+    expect(result.firecells[0].calculatedOccupantLoad).toBeNull();
+    expect(result.getFirecellCount()).toBe(1);
+  });
+
+  test('should work with empty project model', () => {
+    const result = processOccupantLoads(projectModel);
+
+    expect(result).toBe(projectModel);
+    expect(result.getFirecellCount()).toBe(0);
+  });
+
+  test('should preserve compliance data and other firecell properties', () => {
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      // occupantLoad removed - will be calculated as 800/10 = 80
+      escapeHeight: 3,
+      isSprinklered: false,
+      floorArea: 800,
+      floor: 'G'
+    });
+
+    // Add some compliance data to test preservation
+    projectModel.firecells[0].compliance['test-compliance'] = true;
+    projectModel.firecells[0].customProperty = 'test-value';
+
+    const result = processOccupantLoads(projectModel);
+
+    expect(result.firecells[0].occupantLoad).toBe(80); // 800 / 10 = 80
+    expect(result.firecells[0].calculatedOccupantLoad).toBe(80); // Backwards compat
+    expect(result.firecells[0].compliance['test-compliance']).toBe(true);
+    expect(result.firecells[0].customProperty).toBe('test-value');
+  });
+});

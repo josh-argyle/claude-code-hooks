@@ -1,0 +1,530 @@
+# Fire Safety Systems Integration Tests - Implementation Plan
+
+## 🎯 CURRENT STATUS: 32/~46 TESTS COMPLETE (70%)
+
+**Last Updated:** 2025-10-02
+**Tests Passing:** 32
+**Tests Remaining:** ~14 (Notes 5, 6, 8, 9, 10)
+
+### ✅ COMPLETED (32 tests):
+- Foundation Tests (3) ✓
+- Note 1a SM Bed Exemption (4) ✓
+- Note 1b CA Single Level (3) ✓
+- Note 1c WB Small Building (3) ✓
+- Note 1d VP Small Parking (3) ✓
+- Note 2 Fire Hydrant Exemption (2) ✓
+- Note 3 SI Dual Water Supply (2) ✓
+- Note 4 CA Early Childhood (6 - PRE-EXISTING) ✓
+- Note 7 WB Storage Type 3 (6) ✓
+
+### 🔲 REMAINING (~14 tests):
+- **Note 5** - Type 4 Substitution (2 tests) - Lines 220-237
+- **Note 6** - WB Storage Height Compliance (3 tests) - Lines 239-262
+- **Note 8** - Type 3 Alternative (2 tests) - Lines 302-320
+- **Note 9** - VP Ventilation (3 tests) - Lines 322-355
+- **Note 10** - Multi-Risk Type 3 (4 tests) - Lines 357-406
+
+## Overview
+Create comprehensive integration tests for the fire safety systems note evaluation framework. These tests will validate end-to-end behavior of the orchestrator with note evaluations in realistic multi-firecell building scenarios.
+
+## Current State Analysis
+
+### Existing Integration Tests
+1. **project-model-integration.test.js**
+   - Tests ProjectModel CRUD operations
+   - 20 diverse firecells covering all risk groups
+   - Does NOT test fire safety systems processing
+   - Does NOT test note evaluations
+
+2. **occupant-load-integration.test.js**
+   - Tests occupant load processing with ProjectModel
+   - Validates calculated occupant loads
+   - 5 firecells, various risk groups
+
+### Gap Analysis
+**Missing Coverage:**
+- ❌ No integration tests for `processFireSafetySystems()`
+- ❌ No tests for note evaluation in real scenarios
+- ❌ No cross-firecell dependency tests (notes 1b, 1c, 9, 10)
+- ❌ No validation of `fireSafetySystemsCompliance` data storage
+- ❌ No end-to-end tests showing system removal/addition
+- ❌ No multi-risk building scenarios
+- ❌ No tests verifying notes only apply when system codes reference them
+
+## Implementation Strategy
+
+### File to Create
+`/tests/integration/fire-safety-systems-integration.test.js`
+
+### Test Structure
+
+#### 1. **Basic System Processing (Foundation Tests)** ✅ COMPLETE (3 tests)
+Tests that verify basic orchestrator integration without complex note scenarios.
+
+**CORRECTED Test Values from `/api/data/data/fire-safety-systems.js` lookup table:**
+
+**Test Cases:**
+- ✅ `should process fire safety systems for single firecell`
+  - CA firecell: `occupantLoad: 150, escapeHeight: 3.0`
+  - Expected base systems: `['2', '18^2']` (from CA lookup line 126)
+  - Verify `result.systems` array is populated
+  - Verify `result.complianceInfo` object exists
+
+- ✅ `should process multiple firecells of same risk group`
+  - CA firecell 1: `occupantLoad: 50, escapeHeight: 3.0` → `['2', '18^2']` (line 134)
+  - CA firecell 2: `occupantLoad: 150, escapeHeight: 5.0` → `['4^5', '9', '18^2']` (line 118)
+  - CA firecell 3: `occupantLoad: 500, escapeHeight: 15.0` → `['4^5', '9', '15', '18^2']` (line 117)
+  - Verify each has independent systems based on occupant load/escape height
+
+- ✅ `should process multi-risk building (all 6 risk groups)`
+  - SM: `occupantType: 'permanent', occupantLoad: 15, escapeHeight: 5.0` → `['1', '2^1a', '18^2']` (line 84)
+  - SI: `occupantType: 'careOrDetention', occupantLoad: 80, escapeHeight: 8.0` → `['7^3', '9', '18^2']` (line 100)
+  - CA: `occupantLoad: 150, escapeHeight: 5.0` → `['4^5', '9', '18^2']` (line 124)
+  - WB: `occupantLoad: 50, escapeHeight: 3.0` → `['2^1c-7', '18^2']` (line 158)
+  - WS: `occupantLoad: 500, escapeHeight: 6.0` → `['6', '18^2']` (line 173)
+  - VP: `escapeHeight: 5.0, hasVehicleStacker: false` → `['2^1d-9-10', '18^2']` (line 178)
+  - Verify all risk groups get appropriate systems
+  - No cross-contamination
+
+#### 2. **Note 1a - SM Bed Exemption Tests** ✅ COMPLETE (4 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should exempt Type 2 for SM with ≤10 beds (note 1a)`
+  - SM: `occupantType: 'permanent', occupantLoad: 8, escapeHeight: 5.0, maxEscapeRouteBeds: 8`
+  - Expected base systems: `['1', '2^1a', '18^2']` (line 84)
+  - After Note 1a evaluation: Type 2 should be REMOVED (≤10 beds)
+  - Final systems: `['1', '18^2']`
+
+- ✅ `should require Type 2 for SM with >10 beds`
+  - SM: `occupantType: 'permanent', occupantLoad: 15, escapeHeight: 5.0, maxEscapeRouteBeds: 15`
+  - Expected base systems: `['1', '2^1a', '18^2']` (line 84)
+  - After Note 1a evaluation: Type 2 should REMAIN (>10 beds)
+  - Final systems: `['1', '2', '18^2']`
+
+- ✅ `should exempt Type 2 for SM with direct exit (note 1a)`
+  - SM: `occupantType: 'permanent', occupantLoad: 20, escapeHeight: 5.0, maxEscapeRouteBeds: 20, exitDirectlyToSafePlace: true`
+  - Expected base systems: `['1', '2^1a', '18^2']` (line 84)
+  - After Note 1a evaluation: Type 2 should be REMOVED (direct exit exemption)
+  - Final systems: `['1', '18^2']`
+
+- ✅ `should exempt Type 5 for transient with ≤10 beds at ground level (note 1a)`
+  - SM: `occupantType: 'transient', occupantLoad: 5, escapeHeight: 0, maxEscapeRouteBeds: 5`
+  - Expected base systems: `['5^1a', '18^2']` (line 89 - transient at 0m)
+  - After Note 1a evaluation: Type 5 REMOVED (exempt for ≤10 beds + <4m height)
+  - Final systems: `['18^2']`
+
+#### 3. **Note 1b - CA Single Level Exemption Tests (CROSS-FIRECELL)** ✅ COMPLETE (3 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should exempt Type 2 for single-level CA with ≤50 occupants (note 1b)`
+  - CA 1: `occupantLoad: 40, escapeHeight: 0, floor: '1', maxEscapeRouteOccupants: 40`
+  - CA 2: `occupantLoad: 30, escapeHeight: 0, floor: '1', maxEscapeRouteOccupants: 30`
+  - Expected base systems: `['2^1b', '18^2']` (line 133 - <100 occupants, 0m height)
+  - After Note 1b evaluation: Type 2 REMOVED from BOTH (single level + all ≤50)
+  - Final systems: `['18^2']`
+  - **Critical**: CROSS-FIRECELL - both must be on same floor
+
+- ✅ `should require Type 2 when CA firecells on different floors (note 1b)`
+  - CA 1: `occupantLoad: 40, escapeHeight: 0, floor: '1', maxEscapeRouteOccupants: 40`
+  - CA 2: `occupantLoad: 40, escapeHeight: 0, floor: '2', maxEscapeRouteOccupants: 40`
+  - Expected base systems: `['2^1b', '18^2']` (line 133)
+  - After Note 1b evaluation: Type 2 REMAINS (multi-level building)
+  - Final systems: `['2', '18^2']`
+
+- ✅ `should require Type 2 when ANY CA exceeds 50 occupants (note 1b)`
+  - CA 1: `occupantLoad: 30, escapeHeight: 0, floor: '1', maxEscapeRouteOccupants: 30`
+  - CA 2: `occupantLoad: 60, escapeHeight: 0, floor: '1', maxEscapeRouteOccupants: 60`
+  - Expected base systems: `['2^1b', '18^2']` (line 133)
+  - After Note 1b evaluation: Type 2 REMAINS (one exceeds 50)
+  - Final systems: `['2', '18^2']`
+
+#### 4. **Note 1c - WB Single Level Small Building Exemption (CROSS-FIRECELL)** ✅ COMPLETE (3 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should exempt Type 2 for single-level WB with <3m storage ≤50 occupants (note 1c)`
+  - WB 1: `occupantLoad: 40, escapeHeight: 3.0, floor: 'G', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40`
+  - WB 2: `occupantLoad: 30, escapeHeight: 3.0, floor: 'G', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 30`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158 - <100 occupants, <4m height)
+  - After Note 1c evaluation: Type 2 REMOVED from BOTH (all 3 conditions met)
+  - Final systems: `['18^2']` (Note 7 doesn't add Type 3 because storage ≤3m)
+  - **Critical**: CROSS-FIRECELL - both must be on same floor + storage <3m + all ≤50
+
+- ✅ `should require Type 2 when storage height ≥3m (note 1c)`
+  - WB: `occupantLoad: 40, escapeHeight: 3.0, floor: 'G', maxStorageHeight: 3.5, maxEscapeRouteOccupants: 40`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - After Note 1c evaluation: Type 2 REMAINS (storage ≥3m)
+  - After Note 7 evaluation: Type 3 ADDED (storage >3m, 10-99 occupants)
+  - Final systems: `['2', '3', '18^2']`
+
+- ✅ `should require Type 2 for multi-level WB (note 1c)`
+  - WB 1: `occupantLoad: 40, escapeHeight: 3.0, floor: 'G', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40`
+  - WB 2: `occupantLoad: 40, escapeHeight: 6.0, floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40`
+  - Expected base systems: `['2^1c-7', '18^2']` and `['4^5', '9', '18^2']` (different heights)
+  - After Note 1c evaluation: Type 2 REMAINS (multi-level)
+  - Final systems: `['2', '18^2']` and `['4', '9', '18^2']`
+
+#### 5. **Note 1d - VP Small Parking Exemption Tests** ✅ COMPLETE (3 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should exempt Type 2 for VP with <50 occupants and <10 vehicles (note 1d)`
+  - VP: `occupantLoad: 30, escapeHeight: 5.0, vehicleCount: 8`
+  - Expected base systems: `['2^1d-9-10', '18^2']` (line 178 - <10m height)
+  - After Note 1d evaluation: Type 2 REMOVED (<50 occupants AND <10 vehicles)
+  - Final systems: `['18^2']` (Notes 9 & 10 don't apply in this scenario)
+
+- ✅ `should require Type 2 when VP has ≥50 occupants (note 1d)`
+  - VP: `occupantLoad: 60, escapeHeight: 5.0, vehicleCount: 5`
+  - Expected base systems: `['2^1d-9-10', '18^2']` (line 178)
+  - After Note 1d evaluation: Type 2 REMAINS (≥50 occupants)
+  - Final systems: `['2', '18^2']`
+
+- ✅ `should require Type 2 when VP has ≥10 vehicles (note 1d)`
+  - VP: `occupantLoad: 30, escapeHeight: 5.0, vehicleCount: 15`
+  - Expected base systems: `['2^1d-9-10', '18^2']` (line 178)
+  - After Note 1d evaluation: Type 2 REMAINS (≥10 vehicles)
+  - After Note 9 evaluation: ventilationRequired = true (>10 vehicles, unsprinklered)
+  - Final systems: `['2', '18^2']` + compliance info
+
+#### 6. **Note 2 - Fire Hydrant Exemption Tests (UNIVERSAL)** ✅ COMPLETE (2 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should exempt Type 18 for all firecells when FENZ conditions met (note 2)`
+  - ProjectData: `fenzAccessHeightUnder15m: true, fenzHoseRunUnder75m: true`
+  - CA: `occupantLoad: 150, escapeHeight: 5.0` → base: `['4^5', '9', '18^2']`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0` → base: `['2^1c-7', '18^2']`
+  - VP: `occupantLoad: 30, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']`
+  - After Note 2 evaluation: Type 18 REMOVED from ALL (FENZ conditions met)
+  - Final systems: `['4', '9']`, `['2']`, `['2']` respectively
+
+- ✅ `should require Type 18 when FENZ conditions not met (note 2)`
+  - ProjectData: `fenzAccessHeightUnder15m: false, fenzHoseRunUnder75m: true`
+  - CA: `occupantLoad: 150, escapeHeight: 5.0` → base: `['4^5', '9', '18^2']`
+  - After Note 2 evaluation: Type 18 REMAINS (height ≥15m)
+  - Final systems: `['4', '9', '18']`
+
+#### 7. **Note 3 - SI Dual Water Supply Tests (COMPLIANCE)** ✅ COMPLETE (2 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should track dual water supply requirement for SI >100 care/detention (note 3)`
+  - SI: `occupantType: 'careOrDetention', occupantLoad: 150, escapeHeight: 8.0, hospitalCareDetentionCount: 150`
+  - Expected base systems: `['7^3', '9', '18^2']` (line 100 - careOrDetention <10m)
+  - After Note 3 evaluation: Systems UNCHANGED (compliance tracking only)
+  - Compliance info: `dualWaterSupply: true` (>100 care/detention)
+  - Final systems: `['7', '9', '18^2']` (note removed from code)
+
+- ✅ `should not require dual supply for SI ≤100 (note 3)`
+  - SI: `occupantType: 'careOrDetention', occupantLoad: 80, escapeHeight: 8.0, hospitalCareDetentionCount: 80`
+  - Expected base systems: `['7^3', '9', '18^2']` (line 100)
+  - Compliance info: `dualWaterSupply: false` (≤100)
+  - Final systems: `['7', '9', '18^2']`
+
+#### 8. **Note 4 - CA Early Childhood Tests (COMPLIANCE)** ✅ COMPLETE (6 tests - PRE-EXISTING)
+
+**NOTE: This section already has 6 tests implemented (lines 5-194 of integration test file)**
+**Skip these tests - already complete**
+
+#### 9. **Note 5 - Type 4 Substitution Tests (COMPLIANCE)**
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- `should allow Type 4 substitution for CA challenging smoke (note 5)`
+  - CA: `occupantLoad: 300, escapeHeight: 3.0, challengingSmokeEnvironment: true`
+  - Expected base systems: `['4^5', '18^2']` (line 119 - 251-1000, <4m)
+  - After Note 5 evaluation: Systems UNCHANGED (compliance tracking only)
+  - Compliance info: `type4SubstitutionAllowed: true`
+  - Note: Type 4 can be substituted with Type 6 or Type 3 + supplementary smoke detection
+  - Final systems: `['4', '18^2']`
+
+- `should allow Type 4 substitution for WB challenging smoke (note 5)`
+  - WB: `occupantLoad: 150, escapeHeight: 3.0, challengingSmokeEnvironment: true`
+  - Expected base systems: `['4^5-8', '18^2']` (line 151 - 100-1000, <4m)
+  - Compliance info: `type4SubstitutionAllowed: true`
+  - Final systems: `['4', '18^2']`
+
+#### 10. **Note 6 - WB Storage Height Compliance Tests (COMPLIANCE)**
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- `should track storage height compliance for WB (note 6)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 7.5, totalFloorArea: 3000`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - Compliance info: `storageHeightCompliant: true` (7.5m storage, 3000m² within 4200m² limit)
+  - Per Table 1.1: WB capable of 5-8m storage with ≤4200m² total floor area is in scope
+  - Final systems: `['2', '3', '18^2']` (Note 7 adds Type 3 for >3m storage)
+
+- `should track non-compliance for WB exceeding area limits (note 6)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 7.5, totalFloorArea: 5000`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - Compliance info: `storageHeightCompliant: false` (5000m² exceeds 4200m² limit)
+  - Final systems: `['2', '3', '18^2']`
+
+- `should track non-compliance for storage >8m apex (note 6)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 9.0, totalFloorArea: 3000`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - Compliance info: `storageHeightCompliant: false` (9m exceeds 8m apex limit)
+  - Per Table 1.1: >8m apex is outside WB scope
+  - Final systems: `['2', '3', '18^2']`
+
+#### 11. **Note 7 - WB Storage Type 3 Addition Tests (ADDITION)** ✅ COMPLETE (6 tests)
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- ✅ `should add Type 3 for WB 10-99 occupants with >3m storage (note 7)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 4.5`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158 - <100, <4m)
+  - After Note 7 evaluation: Type 3 ADDED (10-99 occupants + >3m storage)
+  - Final systems: `['2', '3', '18^2']`
+
+- ✅ `should NOT add Type 3 for WB with ≤3m storage (note 7)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 2.5`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - After Note 7 evaluation: Type 3 NOT added (storage ≤3m)
+  - Final systems: `['2', '18^2']`
+
+- ✅ `should NOT add Type 3 for WB with <10 occupants (note 7)`
+  - WB: `occupantLoad: 5, escapeHeight: 3.0, maxStorageHeight: 4.5`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158)
+  - After Note 7 evaluation: Type 3 NOT added (<10 occupants)
+  - Final systems: `['2', '18^2']`
+
+- ✅ `should NOT add Type 3 for WB with ≥100 occupants (note 7)`
+  - WB: `occupantLoad: 120, escapeHeight: 3.0, maxStorageHeight: 4.5`
+  - Expected base systems: `['4^5-8', '18^2']` (line 151 - 100-1000, <4m)
+  - After Note 7 evaluation: Type 3 NOT added (≥100 occupants, Note 7 only for 10-99)
+  - Final systems: `['4', '18^2']`
+
+- ✅ `should add Type 3 at exact boundaries (note 7)`
+  - WB 1: `occupantLoad: 10, escapeHeight: 3.0, maxStorageHeight: 3.01` → `['2', '3', '18^2']`
+  - WB 2: `occupantLoad: 99, escapeHeight: 3.0, maxStorageHeight: 3.01` → `['2', '3', '18^2']`
+  - WB 3: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 3.0` → `['2', '18^2']` (NOT >3m)
+
+- ✅ `should NOT apply to non-WB risk groups (note 7)`
+  - VP: `occupantLoad: 50, escapeHeight: 5.0, maxStorageHeight: 4.5` → Note 7 does NOT apply
+  - CA: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 4.5` → Note 7 does NOT apply
+
+#### 12. **Note 8 - Type 3 Alternative Tests (COMPLIANCE)**
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- `should allow Type 3 alternative for WB 100-1000 with >3m storage (note 8)`
+  - WB: `occupantLoad: 500, escapeHeight: 3.0, maxStorageHeight: 4.5`
+  - Expected base systems: `['4^5-8', '18^2']` (line 151 - 100-1000, <4m)
+  - After Note 8 evaluation: Systems UNCHANGED (compliance tracking only)
+  - Compliance info: `type3AlternativeAllowed: true` (100-1000 occupants + >3m storage)
+  - Note: Type 3 can be provided instead of Type 4 for storage areas
+  - Final systems: `['4', '18^2']`
+
+- `should not allow for WB outside 100-1000 range (note 8)`
+  - WB: `occupantLoad: 50, escapeHeight: 3.0, maxStorageHeight: 4.5`
+  - Expected base systems: `['2^1c-7', '18^2']` (line 158 - <100, <4m)
+  - Note 8 does NOT apply (<100 occupants, outside 100-1000 range)
+  - Compliance info: `type3AlternativeAllowed: false` or undefined
+  - Final systems: `['2', '3', '18^2']` (Note 7 adds Type 3)
+
+#### 13. **Note 9 - VP Ventilation Tests (CROSS-FIRECELL, COMPLIANCE)**
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- `should require ventilation for unsprinklered VP >10 vehicles (note 9)`
+  - VP: `occupantLoad: 15, escapeHeight: 5.0, vehicleCount: 15, isSprinklered: false, hasCrossVentilation: false`
+  - Expected base systems: `['2^1d-9-10', '18^2']` (line 178 - <10m)
+  - After Note 9 evaluation: Systems UNCHANGED (compliance tracking only)
+  - Compliance info: `ventilationRequired: true, ventilationCompliant: false` (>10 vehicles, unsprinklered, no ventilation)
+  - Final systems: `['2', '18^2']`
+
+- `should not require ventilation for sprinklered VP (note 9)`
+  - VP: `occupantLoad: 15, escapeHeight: 5.0, vehicleCount: 15, isSprinklered: true`
+  - Expected base systems: `['2^1d-9-10', '18^2']` (line 178)
+  - After Note 9 evaluation: ventilation NOT required (sprinklered)
+  - Compliance info: `ventilationRequired: false`
+  - Final systems: `['2', '18^2']`
+
+- `CROSS-FIRECELL: should require ventilation for ALL VP when one triggers (note 9)`
+  - VP 1: `occupantLoad: 10, escapeHeight: 5.0, vehicleCount: 5, isSprinklered: false` (doesn't trigger alone)
+  - VP 2: `occupantLoad: 15, escapeHeight: 5.0, vehicleCount: 15, isSprinklered: false` (triggers)
+  - Expected base systems: `['2^1d-9-10', '18^2']` for BOTH
+  - **CRITICAL**: BOTH VP firecells should have `ventilationRequired: true`
+  - Final systems: `['2', '18^2']` for BOTH
+
+#### 14. **Note 10 - Multi-Risk Type 3 Addition Tests (CROSS-FIRECELL, ADDITION)**
+
+**CORRECTED Test Values:**
+
+**Test Cases:**
+- `CROSS-FIRECELL: should add Type 3 to VP when other risk groups have fire alarms (note 10)`
+  - CA: `occupantLoad: 300, escapeHeight: 3.0` → base: `['4^5', '18^2']` (has Type 4 fire alarm)
+  - VP: `occupantLoad: 10, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']` (no fire alarm in base)
+  - After Note 10 evaluation: Type 3 ADDED to VP (other risk group has fire alarm)
+  - VP final systems: `['2', '3', '18^2']`
+  - VP compliance info: `requiresMinType3: true`
+
+- `should not add Type 3 to VP when no other firecells have fire alarms (note 10)`
+  - VP only: `occupantLoad: 10, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']`
+  - No other risk groups in building
+  - After Note 10 evaluation: Type 3 NOT added (VP-only building)
+  - VP final systems: `['2', '18^2']`
+  - VP compliance info: `requiresMinType3: false`
+
+- `CROSS-FIRECELL: should add Type 3 to ALL VP firecells in multi-risk building (note 10)`
+  - CA: `occupantLoad: 300, escapeHeight: 3.0` → base: `['4^5', '18^2']` (has Type 4)
+  - VP 1: `occupantLoad: 10, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']`
+  - VP 2: `occupantLoad: 15, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']`
+  - **CRITICAL**: BOTH VP firecells should have Type 3 added
+  - VP 1 & 2 final systems: `['2', '3', '18^2']`
+
+- `should not add Type 3 to VP when only other VP has fire alarms (note 10)`
+  - VP 1: `occupantLoad: 30, escapeHeight: 15.0` → base: `['3^9', '15', '18^2']` (has Type 3 fire alarm)
+  - VP 2: `occupantLoad: 10, escapeHeight: 5.0` → base: `['2^1d-9-10', '18^2']` (no fire alarm)
+  - Note 10 only looks at NON-VP firecells
+  - VP 2 should NOT have Type 3 added (only other VP has alarm, no other risk groups)
+  - VP 2 final systems: `['2', '18^2']`
+
+#### 15. **Complex Multi-Firecell Scenarios**
+
+**Test Cases:**
+- `should handle mixed-use building with all note types`
+  - SM (note 1a), CA (note 1b), WB (note 1c), VP (note 7, 9, 10)
+  - Multiple cross-firecell dependencies active simultaneously
+  - Verify each firecell gets correct systems and compliance
+
+- `should handle competing notes on same firecell`
+  - WB with both note 6 (storage compliance) and note 8 (Type 3 alternative)
+  - Both compliance items should be tracked independently
+
+- `should preserve base systems not referenced by notes`
+  - Firecell with systems [15, 18, 9]
+  - Note evaluations don't touch these
+  - All should remain in final systems
+
+- `should only evaluate notes that are referenced in system codes`
+  - VP firecell with base systems that DON'T have note references
+  - Note 7 should still apply (addition note)
+  - But compliance-only notes shouldn't create entries
+
+## Test Data Requirements
+
+### Properties Needed on Firecells
+```javascript
+{
+  // Existing properties
+  riskGroup, occupantType, occupantLoad, escapeHeight,
+  isSprinklered, floorArea,
+
+  // NEW properties for notes (add to test data)
+  maxEscapeRouteBeds,           // Note 1a
+  exitDirectlyToSafePlace,      // Note 1a
+  smOccupantType,               // Note 1a (transient/permanent)
+  maxEscapeRouteOccupants,      // Note 1b, 1c
+  floor,                        // Note 1b, 1c
+  maxStorageHeight,             // Note 1c, 6, 7, 8
+  vehicleCount,                 // Note 1d, 7, 9
+  hospitalCareDetentionCount,   // Note 3
+  isEarlyChildhoodCentre,       // Note 4
+  challengingSmokeEnvironment,  // Note 5
+  totalFloorArea,               // Note 6
+  hasCrossVentilation,          // Note 9
+}
+```
+
+### ProjectModel Properties
+```javascript
+{
+  fenzAccessHeightUnder15m,  // Note 2
+  fenzHoseRunUnder75m,       // Note 2
+}
+```
+
+## Assertions to Verify
+
+### 1. System Arrays
+```javascript
+expect(firecell.fireSafetySystems).toEqual(['expected', 'systems']);
+expect(firecell.fireSafetySystems).not.toContain('2'); // Removed
+expect(firecell.fireSafetySystems).toContain('3'); // Added
+```
+
+### 2. Compliance Info
+```javascript
+expect(firecell.fireSafetySystemsCompliance.dualWaterSupply).toBe(true);
+expect(firecell.fireSafetySystemsCompliance.ventilationRequired).toBe(true);
+expect(firecell.fireSafetySystemsCompliance.ventilationCompliant).toBe(false);
+```
+
+### 3. Processed Systems
+```javascript
+expect(firecell.processedFireSafetySystems).toHaveLength(expectedCount);
+expect(firecell.processedFireSafetySystems[0]).toHaveProperty('code');
+expect(firecell.processedFireSafetySystems[0]).toHaveProperty('definition');
+expect(firecell.processedFireSafetySystems[0]).toHaveProperty('processed', true);
+```
+
+## Implementation Order
+
+1. **Phase 1**: Basic system processing (foundation)
+2. **Phase 2**: Simple removal notes (1a, 1d, 2)
+3. **Phase 3**: Cross-firecell removal notes (1b, 1c)
+4. **Phase 4**: Compliance tracking notes (3, 4, 5, 6, 8)
+5. **Phase 5**: Addition notes (7)
+6. **Phase 6**: Complex cross-firecell notes (9, 10)
+7. **Phase 7**: Complex multi-firecell scenarios
+
+## Success Criteria
+
+✅ All 13 notes have integration test coverage
+✅ Cross-firecell dependencies are thoroughly tested
+✅ Compliance info storage is validated
+✅ System removal/addition is verified end-to-end
+✅ Complex multi-risk scenarios work correctly
+✅ All tests pass with existing test suite (493+ tests)
+✅ Tests document expected behavior for future developers
+
+## Critical Insights
+
+1. **Notes only evaluate when referenced in base system codes**
+   - Exception: Addition notes (7, 10) always evaluate
+   - Compliance notes only create entries when note is in system code
+
+2. **Cross-firecell dependencies are complex**
+   - Notes 1b, 1c: ALL firecells of same risk group must meet criteria
+   - Note 9: If ANY VP triggers, ALL VP need ventilation
+   - Note 10: If ANY non-VP has fire alarms, ALL VP need Type 3
+
+3. **System modification happens BEFORE processing**
+   - Calculator modifies system codes
+   - Then processMinimumFireSafetySystems adds definitions
+   - Order matters for testing
+
+4. **Compliance info is separate from systems**
+   - `fireSafetySystems` = modified system codes
+   - `fireSafetySystemsCompliance` = tracking info
+   - Both should be tested independently
+
+## TODO List for Implementation
+
+- [ ] Create `/tests/integration/fire-safety-systems-integration.test.js`
+- [ ] Phase 1: Basic processing tests (3 tests)
+- [ ] Phase 2: Simple removal notes (9 tests)
+- [ ] Phase 3: Cross-firecell removal notes (6 tests)
+- [ ] Phase 4: Compliance tracking notes (8 tests)
+- [ ] Phase 5: Addition notes (4 tests)
+- [ ] Phase 6: Complex cross-firecell notes (7 tests)
+- [ ] Phase 7: Complex scenarios (4 tests)
+- [ ] Run full test suite and verify 493+ → 534+ tests passing
+- [ ] Document any edge cases discovered during testing

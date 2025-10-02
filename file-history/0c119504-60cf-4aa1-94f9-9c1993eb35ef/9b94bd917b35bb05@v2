@@ -1,0 +1,1145 @@
+# Deep Dive Analysis: C/AS2 Table 2.1 Notes Implementation
+
+**Investigation Date:** 2025-10-01
+**Requested By:** Human
+**Investigator:** Claude Code
+**Status:** Critical Implementation Gaps Identified
+
+---
+
+## Executive Summary
+
+After thorough investigation of C/AS2 Table 2.1 firecell floor area limit implementation, **critical gaps** have been identified in both Note 1 and Note 2 implementation. While comprehensive backend logic exists for Note 2, **form data collection is completely missing** for both notes, making Note 2 functionally inaccessible in production and Note 1 entirely unimplemented.
+
+**Impact Level:** HIGH - Affects compliance validation for all sprinklered buildings (Note 1) and all WB/VP unsprinklered buildings over 5000m² (Note 2).
+
+---
+
+## Table 2.1 Specification
+
+**Source:** `/docs/json/cas2/40.json` (C/AS2 Section 2.1.1)
+
+### The Table
+
+| Risk Group | Unsprinklered | Sprinklered |
+|------------|---------------|-------------|
+| SM | 500 | Unlimited¹ |
+| SI | n/a | 500 |
+| CA | 5000 | Unlimited¹ |
+| WB | 5000² | Unlimited¹ |
+| WS | n/a | Unlimited¹ |
+| VP | 5000² | Unlimited¹ |
+
+### The Notes
+
+**Note 1:** Except where the Acceptable Solution requires fire separations or other area limitations
+
+**Note 2:** When 15 m or greater from a relevant boundary, the firecell floor area is unlimited, except where the Acceptable Solution requires fire separations or other area limitations
+
+---
+
+## Note 1 Analysis: Fire Separations Acknowledgment
+
+### Specification Requirements
+
+**Text:** "Except where the Acceptable Solution requires fire separations or other area limitations"
+
+**Applies to:** All risk groups with "Unlimited¹" designation:
+- SM (sprinklered)
+- CA (sprinklered)
+- WB (sprinklered)
+- WS (sprinklered)
+- VP (sprinklered)
+
+### Developer Intent
+
+**Evidence from `/docs/form.md` (lines 3-4):**
+> "For all risk groups aside from SI sprinklered, they need to check a box saying that they are aware that notes '1. Except where the Acceptable Solution requires fire separations or other area limitations' is complied with"
+
+**Clear Intent:** User acknowledgment checkbox required
+
+### Current Implementation Status: ❌ **NOT IMPLEMENTED**
+
+#### Missing Components
+
+1. **Form Field (views/project-form.pug)**
+   - Status: Does not exist
+   - Search Results: No checkbox or input field found
+   - Expected location: Project-level fieldset (similar to `confirmedNoComplexFeatures`)
+
+2. **Data Model (api/models/project-model.js)**
+   - Status: No field for this confirmation
+   - Comparison: `confirmedNoComplexFeatures` exists (line 31) but no equivalent for Note 1
+   - Expected field: `confirmedFireSeparationCompliance` or similar
+
+3. **Server Processing (server.js)**
+   - Status: No processing logic for this field
+   - Lines 55-56 handle `confirmedNoComplexFeatures` but nothing for Note 1
+   - No validation or storage
+
+4. **Backend Logic**
+   - Note text stored in `/api/data/data/firecell-floor-area-limits.js:29`
+   - BUT: No validation logic checks if user acknowledged this limitation
+   - "Unlimited¹" is treated as truly unlimited without user confirmation
+
+### Risk Analysis
+
+**Current Behavior:**
+- Sprinklered buildings with unlimited floor areas proceed without any acknowledgment
+- Users may not realize additional fire separation requirements apply
+- Compliance documents may be generated without critical limitations noted
+
+**Example Scenario:**
+```
+Building: SM Risk Group, Sprinklered, 10,000m² firecell
+Table: "Unlimited¹"
+Note 1: Subject to fire separation requirements
+Current: Treated as unlimited with NO user confirmation
+Risk: Non-compliant building may proceed thinking no restrictions apply
+```
+
+---
+
+## Note 2 Analysis: 15m Boundary Distance
+
+### Specification Requirements
+
+**Text:** "When 15 m or greater from a relevant boundary, the firecell floor area is unlimited, except where the Acceptable Solution requires fire separations or other area limitations"
+
+**Applies to:**
+- WB (unsprinklered) - base limit 5000²
+- VP (unsprinklered) - base limit 5000²
+
+**Logic:** If distance ≥ 15m from relevant boundary, unlimited area permitted
+
+### Developer Intent
+
+**Evidence from `/docs/form.md` (lines 5-6):**
+> "For WB and VP unsprinklered : 2. When 15 m or greater from a relevant boundary, the firecell floor area is unlimited, except where the Acceptable Solution requires fire separations or other area limitations"
+
+### Current Implementation Status: ⚠️ **PARTIALLY IMPLEMENTED**
+
+Backend logic is **perfect and comprehensively tested**, but **completely inaccessible from UI**.
+
+---
+
+## Note 2: What's Working ✅
+
+### 1. Data Model (`api/models/project-model.js:28`)
+
+```javascript
+this.distanceFromBoundary15mOrMore = undefined;
+```
+
+**Status:** Field exists, properly named, project-level scope
+
+### 2. Processing Logic (`api/processors/fire-safety-systems/firecell-floor-area-limits.js:16-25`)
+
+```javascript
+// C/AS2 Table 2.1 Note 2: WB and VP unsprinklered buildings
+// When 15m or greater from relevant boundary, firecell floor area is unlimited
+const isWBorVP = firecell.riskGroup === 'WB' || firecell.riskGroup === 'VP';
+const isUnsprinklered = firecell.isSprinklered === false;
+const is15mOrMore = firecell.distanceFromBoundary15mOrMore === true;
+
+if (isWBorVP && isUnsprinklered && is15mOrMore) {
+  firecell.compliance['firecell-floor-area'] = true;
+  return;
+}
+```
+
+**Analysis:**
+- Correctly checks risk group (WB or VP only)
+- Correctly checks sprinkler status (unsprinklered only)
+- Correctly applies unlimited area when ≥15m
+- Early return prevents further validation
+
+### 3. Calculator Functions (`api/processors/firecells/calculator.js:16-28`)
+
+```javascript
+function needsBoundaryDistanceQuestion(riskGroup, isSprinklered, floorArea) {
+  // Only WB and VP require boundary distance question
+  if (!['WB', 'VP'].includes(riskGroup)) {
+    return false;
+  }
+
+  // Only for unsprinklered buildings
+  if (isSprinklered) {
+    return false;
+  }
+
+  // Only for buildings >= 5000 m²
+  return floorArea >= 5000;
+}
+```
+
+**Analysis:**
+- Smart conditional logic
+- Only prompts when Note 2 could actually apply
+- Prevents unnecessary questions for other risk groups
+
+### 4. Compliance Calculation (`api/processors/firecells/calculator.js:133-158`)
+
+```javascript
+// If WB or VP unsprinklered
+if (['WB', 'VP'].includes(riskGroup)) {
+  // Compliant if floor area <= 5000
+  if (floorArea <= 5000) {
+    return {
+      isCompliant: true,
+      reason: 'within_limit',
+      limit: baseLimit,
+    };
+  }
+
+  // OR if floor area > 5000 AND 15m+ from boundary
+  if (floorArea > 5000 && isDistanceFromBoundary15mOrMore) {
+    return {
+      isCompliant: true,
+      reason: 'unlimited_with_boundary_distance',
+      limit: 'Unlimited²',
+    };
+  }
+
+  // Otherwise non-compliant
+  return {
+    isCompliant: false,
+    reason: 'exceeds_limit_insufficient_boundary_distance',
+    limit: baseLimit,
+  };
+}
+```
+
+**Analysis:**
+- Three-tiered logic: within limit, unlimited via Note 2, or non-compliant
+- Clear reason codes for each path
+- Proper limit notation (Unlimited²)
+
+### 5. Orchestration (`api/processors/firecells/orchestrator.js:17`)
+
+```javascript
+const distanceFromBoundary15mOrMore = projectModel.distanceFromBoundary15mOrMore || false;
+```
+
+**Analysis:**
+- Retrieves project-level property
+- **Critical Issue:** Defaults to `false` when undefined
+- Passes to all firecell calculations
+
+### 6. Test Coverage - COMPREHENSIVE ✅
+
+**All 740 tests passing, including:**
+
+#### Edge Case Tests (`tests/unit/NEW-EDGE-CASE-TESTS.test.js`)
+
+**Lines 170-262: 15m Boundary Distance Test Suite**
+
+```javascript
+describe('15m Boundary Distance - WB Risk Group', () => {
+  test('should limit unsprinklered firecell to 5000m² when < 15m from boundary', () => {
+    // distanceFromBoundary15mOrMore: false
+    // Expects: 5000m² limit applies
+  });
+
+  test('should NOT comply when > 5000m² and < 15m from boundary', () => {
+    // 6000m² firecell, distanceFromBoundary15mOrMore: false
+    // Expects: Non-compliant
+  });
+
+  test('should allow unlimited area when ≥ 15m from boundary (Note 2)', () => {
+    // 10000m² firecell, distanceFromBoundary15mOrMore: true
+    // Expects: Compliant via Note 2
+  });
+
+  test('should test exact 15m boundary (14.9m)', () => {
+    // distanceFromBoundary: 14.9m
+    // Expects: Still limited to 5000m²
+  });
+
+  test('should test exact 15m boundary (15.0m)', () => {
+    // distanceFromBoundary: 15.0m
+    // Expects: Unlimited allowed
+  });
+
+  test('should test exact 15m boundary (15.1m)', () => {
+    // distanceFromBoundary: 15.1m
+    // Expects: Unlimited allowed
+  });
+});
+
+describe('15m Boundary Distance - VP Risk Group', () => {
+  // Similar comprehensive tests for VP
+});
+```
+
+**Coverage:**
+- Both WB and VP risk groups
+- Boundary edge cases (14.9m, 15.0m, 15.1m)
+- Large floor areas (6000m², 8000m², 10000m²)
+- Compound conditions with storage height
+
+#### Integration Tests (`tests/unit/processors/firecells.test.js`)
+
+**Lines 98, 124, 150, 199, 267:**
+- Multiple scenarios with `distanceFromBoundary15mOrMore` set to true/false
+- Tests for effective limit calculation
+- Tests for compliance determination
+
+**Test Results:** All passing ✅
+
+---
+
+## Note 2: Critical Gap ❌
+
+### Missing Form Data Collection
+
+#### 1. No Form Field (`views/project-form.pug`)
+
+**Searched entire file:** No input field for boundary distance
+
+**Expected location:** Project Information fieldset (lines 42-57)
+
+**Current fields:**
+- `hasRemoteReceivingCentreConnection` ✅
+- `storesHazardousGoods` ✅
+- `distanceFromBoundary15mOrMore` ❌ **MISSING**
+
+**Result:** Users have no way to input this critical data
+
+#### 2. No Server Processing (`server.js`)
+
+**Lines 40-57: Project-level property processing**
+
+```javascript
+// Set project-level properties
+if (req.body.hasRemoteReceivingCentreConnection !== '') {
+  projectModel.hasRemoteReceivingCentreConnection = req.body.hasRemoteReceivingCentreConnection === 'true';
+}
+projectModel.storesHazardousGoods = req.body.storesHazardousGoods;
+
+// NO PROCESSING FOR distanceFromBoundary15mOrMore
+
+// C/AS2 scope validation (Para 1.1.2)
+if (req.body.confirmedNoComplexFeatures !== undefined) {
+  projectModel.confirmedNoComplexFeatures = req.body.confirmedNoComplexFeatures === 'on' || req.body.confirmedNoComplexFeatures === true;
+}
+```
+
+**Gap:** No code to process `req.body.distanceFromBoundary15mOrMore`
+
+**Result:** Even if form field existed, data wouldn't be captured
+
+### Default Behavior Analysis
+
+**From `api/processors/firecells/orchestrator.js:17`:**
+
+```javascript
+const distanceFromBoundary15mOrMore = projectModel.distanceFromBoundary15mOrMore || false;
+```
+
+**Production Reality:**
+1. Form doesn't collect data → `projectModel.distanceFromBoundary15mOrMore` is `undefined`
+2. `undefined || false` evaluates to `false`
+3. **Note 2 NEVER applies in production**
+4. All WB/VP unsprinklered buildings over 5000m² are incorrectly flagged as non-compliant
+
+---
+
+## Real-World Impact Scenarios
+
+### Scenario 1: SM Sprinklered Building (Note 1 Issue)
+
+**Building Details:**
+- Risk Group: SM
+- Sprinklered: Yes
+- Firecell Floor Area: 10,000m²
+
+**Table 2.1 Says:** "Unlimited¹"
+**Note 1 Says:** "Except where the Acceptable Solution requires fire separations or other area limitations"
+
+**Current Behavior:**
+- System treats as truly unlimited
+- No user acknowledgment required
+- Compliance document generated without noting limitations
+
+**Risk:**
+- User may design without fire separations
+- Building may be non-compliant despite "passing" the system
+- Legal/regulatory issues if fire safety features missing
+
+### Scenario 2: WB Unsprinklered, Close Boundary (Note 2 Issue)
+
+**Building Details:**
+- Risk Group: WB
+- Sprinklered: No
+- Firecell Floor Area: 4,500m²
+- Distance from Boundary: 10m (< 15m)
+
+**Table 2.1 Says:** "5000²"
+**Note 2 Says:** Must be ≥15m from boundary for unlimited area
+
+**Expected Behavior:**
+- Within 5000m² limit
+- Should be compliant
+- Note 2 doesn't apply (area ≤ 5000m²)
+
+**Current Behavior:** ✅ Works correctly
+
+### Scenario 3: WB Unsprinklered, Far from Boundary (Note 2 CRITICAL FAILURE)
+
+**Building Details:**
+- Risk Group: WB
+- Sprinklered: No
+- Firecell Floor Area: 8,000m²
+- Distance from Boundary: 20m (≥ 15m)
+
+**Table 2.1 Says:** "5000²"
+**Note 2 Says:** "When 15 m or greater from a relevant boundary, the firecell floor area is unlimited"
+
+**Expected Behavior:**
+- Should ask user for boundary distance
+- User indicates ≥15m from boundary
+- Note 2 applies: Unlimited area permitted
+- Building should be compliant
+
+**Current Behavior:** ❌ **CRITICAL FAILURE**
+- Form cannot collect boundary distance data
+- `distanceFromBoundary15mOrMore` defaults to `false`
+- Logic evaluates: 8,000m² > 5,000m² AND not ≥15m
+- **Result: Building incorrectly flagged as non-compliant**
+- User sees: "Firecell floor area exceeds limit"
+
+**Business Impact:**
+- Correctly compliant buildings rejected
+- Users must choose: incorrectly sprinkler building, or incorrectly limit firecell size
+- System appears "broken" for legitimate use case
+- Engineering firm credibility at risk
+
+### Scenario 4: VP Unsprinklered, Large Parking Structure
+
+**Building Details:**
+- Risk Group: VP (Vehicle Parking)
+- Sprinklered: No
+- Firecell Floor Area: 12,000m²
+- Distance from Boundary: 25m (≥ 15m)
+
+**Current Behavior:** ❌ Same critical failure as Scenario 3
+
+**Real-World Context:**
+- Large parking structures commonly exceed 5,000m²
+- Often located away from boundaries (setback requirements)
+- Note 2 explicitly accommodates this scenario
+- **System cannot handle this legitimate use case**
+
+---
+
+## Why Tests Pass But Production Fails
+
+### Test Environment
+
+**Example from `tests/unit/NEW-EDGE-CASE-TESTS.test.js:204`:**
+
+```javascript
+test('should allow unlimited area when ≥ 15m from boundary (Note 2)', () => {
+  const projectModel = createProjectModel({
+    firecells: [{
+      riskGroup: 'WB',
+      isSprinklered: false,
+      floorArea: 10000,
+      distanceFromBoundary15mOrMore: true,  // ← MANUALLY SET IN TEST
+      // ...
+    }]
+  });
+
+  processFirecells(projectModel);
+
+  const firecell = projectModel.firecells[0];
+  expect(firecell.firecellCompliance.isCompliant).toBe(true);
+});
+```
+
+**Test Passes Because:**
+- Test directly instantiates ProjectModel
+- Bypasses form entirely
+- Manually sets `distanceFromBoundary15mOrMore: true`
+- Backend logic executes perfectly
+
+### Production Environment
+
+**User Journey:**
+1. Opens form in browser
+2. Selects WB risk group, unsprinklered
+3. Enters 10,000m² floor area
+4. **Cannot find boundary distance field** (doesn't exist)
+5. Submits form
+6. `server.js` processes form data
+7. `distanceFromBoundary15mOrMore` is never set → remains `undefined`
+8. Pipeline executes: `undefined || false` → `false`
+9. **Building incorrectly flagged as non-compliant**
+
+**Production Fails Because:**
+- Form has no input mechanism
+- Server has no processing logic
+- Default value is wrong (should ask user, not assume false)
+- Backend logic is unreachable
+
+---
+
+## Code Evidence: The Disconnect
+
+### Backend Expects Data
+
+**`api/processors/firecells/calculator.js:144`:**
+```javascript
+// OR if floor area > 5000 AND 15m+ from boundary
+if (floorArea > 5000 && isDistanceFromBoundary15mOrMore) {
+  return {
+    isCompliant: true,
+    reason: 'unlimited_with_boundary_distance',
+    limit: 'Unlimited²',
+  };
+}
+```
+
+**Logic is sound:** Checks condition, returns compliant
+
+### Frontend Can't Provide Data
+
+**`views/project-form.pug` - Project Information section (lines 42-57):**
+```pug
+fieldset
+  legend Project Information
+
+  div
+    label(for="hasRemoteReceivingCentreConnection") Has Remote Receiving Centre Connection:
+    select#hasRemoteReceivingCentreConnection(name="hasRemoteReceivingCentreConnection")
+      option(value="") -- Select --
+      option(value="true") Yes
+      option(value="false") No
+
+  div
+    label(for="storesHazardousGoods") Stores Hazardous Goods:
+    select#storesHazardousGoods(name="storesHazardousGoods")
+      option(value="") -- Select --
+      option(value="true") Yes
+      option(value="false") No
+
+  // NO FIELD FOR distanceFromBoundary15mOrMore
+```
+
+**Field is absent:** No way to input boundary distance
+
+### Orchestrator Uses Wrong Default
+
+**`api/processors/firecells/orchestrator.js:17`:**
+```javascript
+const distanceFromBoundary15mOrMore = projectModel.distanceFromBoundary15mOrMore || false;
+```
+
+**Problem:** Defaults to `false` when should be conditional
+- Should use `needsBoundaryDistanceQuestion()` to determine if question is needed
+- Should validate that required data is present when needed
+- Should error/warn if WB/VP unsprinklered >5000m² but no boundary data
+
+---
+
+## Comparison: Properly Implemented Feature
+
+To understand what complete implementation looks like, compare with C/AS2 Scope Validation:
+
+### ✅ Complete Implementation Example: `confirmedNoComplexFeatures`
+
+#### 1. Form Field (`views/project-form.pug:11-39`)
+
+```pug
+fieldset
+  legend C/AS2 Scope Confirmation
+  p.help-text This compliance pathway (C/AS2) is NOT suitable for buildings with complex features...
+
+  ul
+    li Atriums
+    li Prison facilities
+    // ... more items
+
+  div
+    label(for="confirmedNoComplexFeatures")
+      input#confirmedNoComplexFeatures(type="checkbox", name="confirmedNoComplexFeatures", required)
+      span I confirm this building does NOT have any of the complex features listed above (Required)
+```
+
+#### 2. Data Model (`api/models/project-model.js:31`)
+
+```javascript
+this.confirmedNoComplexFeatures = undefined;
+```
+
+#### 3. Server Processing (`server.js:55-56`)
+
+```javascript
+if (req.body.confirmedNoComplexFeatures !== undefined) {
+  projectModel.confirmedNoComplexFeatures = req.body.confirmedNoComplexFeatures === 'on' || req.body.confirmedNoComplexFeatures === true;
+}
+```
+
+**This is a complete, working implementation.** Note 1 and Note 2 need the same treatment.
+
+---
+
+## Technical Debt Analysis
+
+### Note 2: Abandoned Implementation?
+
+**Evidence suggests implementation was started but never completed:**
+
+1. **Data model field exists** (created intentionally)
+2. **Comprehensive backend logic** (not trivial - someone spent time on this)
+3. **Extensive test coverage** (740 tests, including boundary edge cases)
+4. **Documentation in form.md** (developer knew it was needed)
+5. **BUT: No form field or server processing**
+
+**Hypothesis:**
+- Backend developer implemented logic and tests
+- Frontend developer was supposed to add form field
+- Handoff never happened or task was forgotten
+- Tests pass so issue went unnoticed
+
+### Note 1: Never Started
+
+**Evidence:**
+- No backend logic
+- No form field
+- Only documentation in form.md indicates awareness
+
+**Hypothesis:**
+- Lower priority (affects all sprinklered, but less critical than Note 2)
+- May have been deferred
+- Never revisited
+
+---
+
+## Recommendations
+
+### Immediate Actions Required
+
+#### 1. Implement Note 2 Form Collection (HIGH PRIORITY)
+
+**Impact:** Unblocks legitimate WB/VP unsprinklered buildings >5000m² that are ≥15m from boundary
+
+**Required Changes:**
+
+**A. Add form field (`views/project-form.pug`, after line 57):**
+
+```pug
+div
+  label(for="distanceFromBoundary15mOrMore")
+    | Is the building 15 metres or greater from the relevant boundary?
+    span.help-icon(title="C/AS2 Table 2.1 Note 2: For WB and VP unsprinklered buildings, unlimited floor area is permitted when ≥15m from relevant boundary") ⓘ
+  select#distanceFromBoundary15mOrMore(name="distanceFromBoundary15mOrMore", required)
+    option(value="") -- Select --
+    option(value="true") Yes (≥15m from boundary)
+    option(value="false") No (<15m from boundary)
+  p.help-text(style="font-style: italic; color: #666;")
+    | Relevant boundary is defined in C/AS2 Section 1.3. This affects WB and VP unsprinklered buildings over 5000m².
+```
+
+**B. Add server processing (`server.js`, after line 44):**
+
+```javascript
+// C/AS2 Table 2.1 Note 2: Boundary distance for WB/VP unsprinklered
+if (req.body.distanceFromBoundary15mOrMore !== undefined && req.body.distanceFromBoundary15mOrMore !== '') {
+  projectModel.distanceFromBoundary15mOrMore = req.body.distanceFromBoundary15mOrMore === 'true';
+}
+```
+
+**C. Improve orchestrator validation (`api/processors/firecells/orchestrator.js`):**
+
+```javascript
+// Better default handling with validation
+const distanceFromBoundary15mOrMore = projectModel.distanceFromBoundary15mOrMore;
+
+// Check if any firecell needs boundary distance data
+const needsBoundaryData = firecells.some(fc =>
+  ['WB', 'VP'].includes(fc.riskGroup) &&
+  !fc.isSprinklered &&
+  fc.floorArea > 5000
+);
+
+if (needsBoundaryData && distanceFromBoundary15mOrMore === undefined) {
+  // Add warning to project model
+  projectModel.warnings = projectModel.warnings || [];
+  projectModel.warnings.push({
+    type: 'missing_boundary_distance',
+    message: 'Boundary distance data required for WB/VP unsprinklered firecells over 5000m²',
+    severity: 'error'
+  });
+}
+
+// Use false as fallback ONLY if data not needed
+const boundaryDistance = distanceFromBoundary15mOrMore || false;
+```
+
+**Testing:**
+- Existing tests should continue passing (they set data explicitly)
+- Add E2E test that submits form with boundary distance field
+- Verify production form can now handle Scenario 3 & 4
+
+---
+
+#### 2. Implement Note 1 Acknowledgment (MEDIUM PRIORITY)
+
+**Impact:** Ensures users understand limitations on "unlimited" sprinklered buildings
+
+**Required Changes:**
+
+**A. Add form field (`views/project-form.pug`, after C/AS2 scope confirmation, around line 40):**
+
+```pug
+// Table 2.1 Note 1: Fire Separation Acknowledgment
+fieldset
+  legend C/AS2 Table 2.1 Note 1: Unlimited Area Acknowledgment
+  p.help-text(style="font-style: italic; color: #666;")
+    | For sprinklered buildings with unlimited firecell floor areas (SM, CA, WB, WS, VP),
+    | please note that unlimited area is still subject to fire separation requirements and
+    | other area limitations specified elsewhere in the Acceptable Solution.
+
+  p(style="margin: 10px 0;")
+    strong Key requirements that still apply:
+  ul(style="margin-left: 20px; margin-bottom: 15px;")
+    li Fire separations as required by the Acceptable Solution
+    li Area limitations specified in other sections
+    li Construction and protection requirements for firecells
+    li Means of escape and egress requirements
+
+  div(style="margin-top: 15px;")
+    label(for="confirmedFireSeparationCompliance" style="display: flex; align-items: flex-start; gap: 10px;")
+      input#confirmedFireSeparationCompliance(type="checkbox", name="confirmedFireSeparationCompliance", required)
+      span I confirm that all fire separations and area limitations required by C/AS2 will be complied with, notwithstanding the unlimited floor area designation (Table 2.1 Note 1 - Required)
+```
+
+**B. Add data model field (`api/models/project-model.js`, after line 31):**
+
+```javascript
+// C/AS2 Table 2.1 Note 1: Fire separation compliance acknowledgment
+this.confirmedFireSeparationCompliance = undefined;
+```
+
+**C. Add server processing (`server.js`, after line 56):**
+
+```javascript
+// C/AS2 Table 2.1 Note 1: Fire separation acknowledgment
+if (req.body.confirmedFireSeparationCompliance !== undefined) {
+  projectModel.confirmedFireSeparationCompliance = req.body.confirmedFireSeparationCompliance === 'on' || req.body.confirmedFireSeparationCompliance === true;
+}
+```
+
+**D. Add validation logic (`api/processors/firecells/orchestrator.js` or new validator):**
+
+```javascript
+function validateFireSeparationAcknowledgment(projectModel) {
+  // Check if any firecell has unlimited area (sprinklered, not SI)
+  const hasUnlimitedArea = projectModel.firecells.some(fc =>
+    fc.isSprinklered &&
+    fc.riskGroup !== 'SI' &&
+    ['SM', 'CA', 'WB', 'WS', 'VP'].includes(fc.riskGroup)
+  );
+
+  if (hasUnlimitedArea && !projectModel.confirmedFireSeparationCompliance) {
+    projectModel.warnings = projectModel.warnings || [];
+    projectModel.warnings.push({
+      type: 'missing_fire_separation_acknowledgment',
+      message: 'User must acknowledge fire separation requirements for unlimited area firecells (C/AS2 Table 2.1 Note 1)',
+      severity: 'error'
+    });
+  }
+}
+```
+
+**E. Add note reference to compliance output:**
+
+When generating compliance documents for sprinklered buildings, include:
+
+```
+Firecell Floor Area: Unlimited¹
+
+¹ Unlimited area is subject to fire separation requirements and other area
+  limitations specified in C/AS2. User has confirmed compliance with these
+  requirements per Table 2.1 Note 1.
+```
+
+**Testing:**
+- Add unit tests for validation logic
+- Add integration test with form submission
+- Verify checkbox is required when sprinklered firecells exist
+- Verify checkbox is not required for SI sprinklered (500m² limit applies)
+
+---
+
+### Conditional Field Display (UX Enhancement)
+
+**Problem:** Boundary distance question only applies to WB/VP unsprinklered buildings
+
+**Solution:** Conditionally show/hide field based on firecell data
+
+**JavaScript in `public/js/form.js`:**
+
+```javascript
+function updateBoundaryDistanceVisibility() {
+  const firecells = document.querySelectorAll('.firecell-item');
+  let needsBoundaryQuestion = false;
+
+  firecells.forEach(firecell => {
+    const riskGroup = firecell.querySelector('[name$="[riskGroup]"]')?.value;
+    const isSprinklered = firecell.querySelector('[name$="[isSprinklered]"]')?.value === 'true';
+    const floorArea = parseFloat(firecell.querySelector('[name$="[floorArea]"]')?.value) || 0;
+
+    // Check if this firecell triggers boundary distance question
+    if (['WB', 'VP'].includes(riskGroup) && !isSprinklered && floorArea >= 5000) {
+      needsBoundaryQuestion = true;
+    }
+  });
+
+  const boundaryField = document.getElementById('distanceFromBoundary15mOrMore')?.closest('div');
+  if (boundaryField) {
+    boundaryField.style.display = needsBoundaryQuestion ? 'block' : 'none';
+
+    // Update required attribute
+    const select = document.getElementById('distanceFromBoundary15mOrMore');
+    if (select) {
+      select.required = needsBoundaryQuestion;
+    }
+  }
+}
+
+// Call on page load and when relevant fields change
+document.addEventListener('DOMContentLoaded', updateBoundaryDistanceVisibility);
+// Add event listeners to firecell fields (riskGroup, isSprinklered, floorArea)
+```
+
+**Benefits:**
+- Reduces form clutter for buildings that don't need it
+- Makes it clear when boundary distance matters
+- Improves user experience
+
+---
+
+### Documentation Updates
+
+#### 1. Update `/docs/form.md`
+
+Change from:
+> "For WB and VP unsprinklered : 2. When 15 m or greater from a relevant boundary..."
+
+To:
+```markdown
+## Table 2.1 Implementation Status
+
+### Note 1: Fire Separations (Implemented: ✅/❌ [DATE])
+- Required for: All sprinklered buildings (except SI) with unlimited area
+- Implementation: Checkbox acknowledgment in Project Information section
+- Data field: `confirmedFireSeparationCompliance`
+- Validation: Required when sprinklered firecells exist
+
+### Note 2: 15m Boundary Distance (Implemented: ✅ [DATE])
+- Required for: WB and VP unsprinklered buildings with floor area ≥ 5000m²
+- Implementation: Dropdown select in Project Information section
+- Data field: `distanceFromBoundary15mOrMore`
+- Conditional display: Only shown when applicable firecells exist
+```
+
+#### 2. Add User-Facing Help Text
+
+Create `/docs/user-guide-table-2-1.md`:
+```markdown
+# Understanding C/AS2 Table 2.1: Firecell Floor Area Limits
+
+## What are Firecell Floor Area Limits?
+
+C/AS2 Table 2.1 sets maximum floor areas for firecells based on:
+- Risk group (SM, SI, CA, WB, WS, VP)
+- Whether the building is sprinklered
+
+## The Two Notes You Need to Know
+
+### Note 1: "Unlimited" Doesn't Mean "No Restrictions"
+
+When you see "Unlimited¹" for sprinklered buildings, this means unlimited
+from a floor area perspective, BUT you must still comply with:
+
+- Fire separation requirements specified elsewhere in C/AS2
+- Area limitations required by other sections
+- All other applicable C/AS2 requirements
+
+**You will be asked to confirm you understand this limitation.**
+
+### Note 2: The 15-Metre Boundary Rule (WB and VP only)
+
+For WB (Working-Business) and VP (Vehicle Parking) unsprinklered buildings:
+- Base limit: 5000m²
+- **Exception:** If your building is ≥15m from the relevant boundary,
+  unlimited floor area is permitted
+
+**What is "relevant boundary"?**
+Defined in C/AS2 Section 1.3. Generally means property boundary or road
+centerline, whichever is closer.
+
+**You will be asked to specify your boundary distance when:**
+- Risk group is WB or VP
+- Building is not sprinklered
+- Any firecell floor area is ≥5000m²
+```
+
+---
+
+## Testing Strategy
+
+### Unit Tests (Should Already Pass)
+
+**Note 2:**
+- ✅ All existing tests pass (740/740)
+- ✅ Boundary distance logic comprehensive
+- ✅ Edge cases covered (14.9m, 15.0m, 15.1m)
+
+**Note 1:**
+- ❌ No tests exist yet
+- Need to add validation tests
+
+### Integration Tests (New)
+
+**Test: Note 2 Form Submission**
+```javascript
+test('should process boundary distance from form submission', () => {
+  const formData = {
+    distanceFromBoundary15mOrMore: 'true',
+    firecells: [{
+      riskGroup: 'WB',
+      isSprinklered: false,
+      floorArea: 8000,
+      // ...
+    }]
+  };
+
+  const projectModel = processFormData(formData);
+
+  expect(projectModel.distanceFromBoundary15mOrMore).toBe(true);
+
+  const processed = processPipeline(projectModel);
+
+  expect(processed.firecells[0].compliance['firecell-floor-area']).toBe(true);
+});
+```
+
+**Test: Note 1 Acknowledgment**
+```javascript
+test('should require fire separation acknowledgment for sprinklered buildings', () => {
+  const formData = {
+    confirmedFireSeparationCompliance: false, // Not acknowledged
+    firecells: [{
+      riskGroup: 'SM',
+      isSprinklered: true,
+      floorArea: 10000,
+      // ...
+    }]
+  };
+
+  const projectModel = processFormData(formData);
+  const processed = processPipeline(projectModel);
+
+  expect(processed.warnings).toContainEqual(
+    expect.objectContaining({
+      type: 'missing_fire_separation_acknowledgment',
+      severity: 'error'
+    })
+  );
+});
+```
+
+### E2E Tests (Playwright - New)
+
+**Test: Complete WB Building with Boundary Distance**
+```javascript
+test('WB unsprinklered >5000m² with boundary ≥15m should be compliant', async ({ page }) => {
+  await page.goto('/');
+
+  // Fill project info
+  await page.selectOption('#distanceFromBoundary15mOrMore', 'true');
+
+  // Fill firecell data
+  await page.selectOption('[name="firecells[0][riskGroup]"]', 'WB');
+  await page.selectOption('[name="firecells[0][isSprinklered]"]', 'false');
+  await page.fill('[name="firecells[0][floorArea]"]', '8000');
+  // ... other required fields
+
+  await page.click('button[type="submit"]');
+
+  // Verify results page shows compliant
+  await expect(page.locator('.compliance-status')).toContainText('Compliant');
+  await expect(page.locator('.firecell-limit')).toContainText('Unlimited²');
+});
+```
+
+---
+
+## Risk Assessment
+
+### Current State Risks
+
+**HIGH RISK:**
+- WB/VP unsprinklered buildings >5000m² with ≥15m boundary distance incorrectly flagged as non-compliant
+- Legitimate buildings rejected by system
+- Users may sprinkler buildings unnecessarily (significant cost impact)
+- System credibility damaged
+
+**MEDIUM RISK:**
+- Sprinklered buildings treated as unlimited without user acknowledgment of fire separation requirements
+- Potential non-compliance with C/AS2 if users don't understand limitations
+- Legal liability if building fails inspection
+
+**LOW RISK:**
+- Tests passing provides false confidence
+- Technical debt accumulation
+
+### Post-Implementation Risks
+
+**Note 2:**
+- Low risk once form field added
+- Existing logic is sound
+- Tests already comprehensive
+
+**Note 1:**
+- Moderate risk: New logic needs thorough testing
+- User education needed (what are "fire separations"?)
+- May need additional guidance/help text
+
+---
+
+## Timeline Estimate
+
+### Note 2 (Priority 1)
+
+**Effort:** 2-4 hours
+- Add form field: 30 min
+- Add server processing: 15 min
+- Update orchestrator validation: 1 hour
+- Add E2E test: 1 hour
+- Manual testing: 1 hour
+
+**Can be done immediately** - backend is ready
+
+### Note 1 (Priority 2)
+
+**Effort:** 4-6 hours
+- Add form field with help text: 1 hour
+- Add data model field: 5 min
+- Add server processing: 15 min
+- Implement validation logic: 2 hours
+- Add unit tests: 1 hour
+- Add E2E test: 1 hour
+- Manual testing: 1 hour
+
+**Requires new logic** - more testing needed
+
+### Total Effort
+
+**Combined:** 6-10 hours for complete implementation
+**Critical path:** Note 2 can unblock users immediately
+
+---
+
+## Conclusion
+
+### Key Findings
+
+1. **Note 2 backend is production-ready** but completely inaccessible from UI
+2. **Note 1 is entirely unimplemented** at all layers
+3. **Tests provide false confidence** - they bypass form entirely
+4. **Developer intent is clear** from documentation but implementation incomplete
+5. **Real-world impact is significant** - legitimate buildings rejected
+
+### Recommendation Priority
+
+1. **IMMEDIATE:** Implement Note 2 form collection (2-4 hours, high impact)
+2. **SHORT-TERM:** Implement Note 1 acknowledgment (4-6 hours, compliance risk)
+3. **FOLLOW-UP:** Add conditional field display (UX enhancement)
+4. **FOLLOW-UP:** Update documentation and user guides
+
+### Success Criteria
+
+**Note 2 Implementation Complete When:**
+- ✅ Form field exists and is functional
+- ✅ Server processes form data correctly
+- ✅ WB/VP unsprinklered >5000m² with ≥15m boundary shows as compliant
+- ✅ All existing tests still pass
+- ✅ New E2E test verifies form-to-result flow
+
+**Note 1 Implementation Complete When:**
+- ✅ Form acknowledgment checkbox exists
+- ✅ Validation logic prevents submission without acknowledgment
+- ✅ Sprinklered buildings include Note 1 reference in compliance output
+- ✅ Tests verify validation works correctly
+- ✅ User documentation explains requirements
+
+---
+
+## Appendix A: Code References
+
+### Files Reviewed
+
+**Data Layer:**
+- `/api/data/data/firecell-floor-area-limits.js` - Table data and notes
+- `/api/models/project-model.js` - Data model structure
+
+**Processing Layer:**
+- `/api/processors/firecells/orchestrator.js` - Processing coordination
+- `/api/processors/firecells/calculator.js` - Compliance calculation logic
+- `/api/processors/fire-safety-systems/firecell-floor-area-limits.js` - Note 2 application
+
+**Presentation Layer:**
+- `/views/project-form.pug` - Form UI
+- `/public/js/form.js` - Client-side form logic
+- `/server.js` - Form processing
+
+**Testing:**
+- `/tests/unit/NEW-EDGE-CASE-TESTS.test.js` - Comprehensive Note 2 tests
+- `/tests/unit/processors/firecells.test.js` - Firecell compliance tests
+- `/tests/unit/processors/firecell-floor-area-limits.test.js` - Basic limit tests
+
+**Documentation:**
+- `/docs/json/cas2/40.json` - C/AS2 specification source
+- `/docs/form.md` - Developer notes on required fields
+
+### Related Issues
+
+**Properly Implemented Feature for Reference:**
+- C/AS2 Scope Validation (`confirmedNoComplexFeatures`)
+- Complete implementation across all layers
+- Good model for Note 1 implementation
+
+---
+
+## Appendix B: Specification Text
+
+### Full Note Text from C/AS2
+
+**Source:** `/docs/json/cas2/40.json`, line 49
+
+```
+"Notes:
+1. Except where the Acceptable Solution requires fire separations or other area limitations
+2. When 15 m or greater from a relevant boundary, the firecell floor area is unlimited, except where the Acceptable Solution requires fire separations or other area limitations"
+```
+
+### Relevant Boundary Definition
+
+**Per C/AS2 Section 1.3** (not in current codebase but referenced):
+- Distance to property boundary, OR
+- Distance to road centerline, OR
+- Distance to relevant boundary as defined by territorial authority
+- Whichever is closest to the building
+
+---
+
+**End of Investigation Report**
+
+---
+
+**Next Steps:** Await approval to implement recommended changes, prioritizing Note 2 form collection for immediate impact.

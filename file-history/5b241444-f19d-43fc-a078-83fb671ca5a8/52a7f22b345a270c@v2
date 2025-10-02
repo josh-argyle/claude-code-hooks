@@ -1,0 +1,221 @@
+const {
+  createRequirementsParagraph,
+  createInfoParagraph,
+  createTableParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Occupant load-based design requirements per C/AS2
+ */
+const TEXT = {
+  overview: {
+    content: "The calculated occupant loads establish the basis for escape route provisions, exit widths, and other life safety requirements. All design elements shall accommodate the occupant loads determined in the compliance assessment."
+  },
+
+  escape_routes: {
+    single: (load) => `With an occupant load of ${load} people (≤50), a minimum of one escape route is required per C/AS2 Table 6.1. This escape route shall be maintained clear and unobstructed at all times, with direct access to a safe path or final exit.`,
+    dual: (load) => `With an occupant load of ${load} people (51-100), a minimum of two separate escape routes are required per C/AS2 Table 6.1. These escape routes shall be arranged to provide alternative paths of travel, with adequate separation to ensure both routes are not simultaneously compromised by a single fire event.`,
+    triple: (load) => `With an occupant load of ${load} people (>100), a minimum of three separate escape routes are required per C/AS2 Table 6.1. These escape routes shall be distributed to provide occupants with alternative evacuation paths from all areas of the building, with adequate separation between routes.`,
+    priority: 'high'
+  },
+
+  door_widths: {
+    content: "All doors forming part of escape routes shall provide a minimum clear opening width of 850mm in accordance with C/AS2 requirements. The total width of exits shall be adequate to accommodate the occupant load, calculated at a minimum of 7mm per person for horizontal exits and 9mm per person for vertical exits (stairs). Exit widths shall be measured as clear width with doors in the open position.",
+    priority: 'high'
+  },
+
+  firecell_routes: {
+    title: "Escape Route Requirements by Firecell",
+    table_headers: ['Firecell', 'Occupant Load', 'Minimum Routes Required', 'Minimum Total Exit Width'],
+    priority: 'high'
+  },
+
+  signage_emergency_lighting: {
+    content: "Exit signage shall be provided to clearly identify all escape routes and exit doors in accordance with NZBC Clause F8. Where Type 15 emergency lighting systems are required, they shall provide adequate illumination along all escape routes and at all exit points to enable safe evacuation. Signage shall be illuminated or photoluminescent to ensure visibility during power failure.",
+    priority: 'standard'
+  },
+
+  corridor_widths: {
+    content: "Corridors and passageways forming part of escape routes shall maintain minimum widths adequate for the occupant load they serve. Where escape routes converge, the combined width shall accommodate the total occupant load using the same calculation factors (7mm per person for horizontal travel). Dead-end corridors shall comply with length limitations specified in C/AS2.",
+    priority: 'standard'
+  },
+
+  occupancy_verification: {
+    content: "Final occupancy permits and building use shall not exceed the calculated occupant loads specified in this assessment. Should the building use change or occupancy increase, the fire safety design shall be reassessed for compliance with the higher occupant load. Building owners shall ensure that actual occupancy does not exceed the design occupant load.",
+    priority: 'standard'
+  },
+
+  accessible_exits: {
+    content: "Where the building is required to provide accessible means of escape for persons with disabilities, at least one escape route shall be designed as an accessible route in accordance with NZBC Clause D1 and C/AS2 requirements. Accessible escape routes may require refuge areas, evacuation lifts, or other provisions as appropriate to the building design.",
+    priority: 'standard'
+  }
+};
+
+/**
+ * Calculate minimum escape routes based on occupant load (C/AS2 Table 6.1)
+ * @param {number} occupantLoad - The occupant load
+ * @returns {number} Minimum number of escape routes required
+ */
+function getMinimumEscapeRoutes(occupantLoad) {
+  if (occupantLoad <= 50) return 1;
+  if (occupantLoad <= 100) return 2;
+  return 3;
+}
+
+/**
+ * Calculate minimum exit width for occupant load
+ * @param {number} occupantLoad - The occupant load
+ * @param {boolean} isVertical - True for stairs (9mm/person), false for horizontal (7mm/person)
+ * @returns {number} Minimum width in millimeters
+ */
+function getMinimumExitWidth(occupantLoad, isVertical = false) {
+  const mmPerPerson = isVertical ? 9 : 7;
+  const calculatedWidth = occupantLoad * mmPerPerson;
+  // Minimum 850mm per door
+  return Math.max(calculatedWidth, 850);
+}
+
+/**
+ * Generate requirements paragraphs for occupant load feature
+ * @param {Object} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateRequirementsParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // Overview
+  paragraphs.push(
+    createInfoParagraph(
+      'Occupant Load Requirements',
+      TEXT.overview.content
+    )
+  );
+
+  // Calculate total occupant load and requirements per firecell
+  let totalOccupantLoad = 0;
+  const firecellRequirements = [];
+
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    projectModel.firecells.forEach((firecell, index) => {
+      const load = firecell.occupantLoad || 0;
+      totalOccupantLoad += load;
+
+      const minRoutes = getMinimumEscapeRoutes(load);
+      const minWidthHorizontal = getMinimumExitWidth(load, false);
+      const minWidthVertical = getMinimumExitWidth(load, true);
+
+      firecellRequirements.push({
+        firecellNum: index + 1,
+        load,
+        minRoutes,
+        minWidthHorizontal,
+        minWidthVertical
+      });
+    });
+  }
+
+  // Generate escape route requirements based on total building occupant load
+  if (totalOccupantLoad > 0) {
+    let escapeRouteText = '';
+    if (totalOccupantLoad <= 50) {
+      escapeRouteText = TEXT.escape_routes.single(totalOccupantLoad);
+    } else if (totalOccupantLoad <= 100) {
+      escapeRouteText = TEXT.escape_routes.dual(totalOccupantLoad);
+    } else {
+      escapeRouteText = TEXT.escape_routes.triple(totalOccupantLoad);
+    }
+
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Minimum Escape Routes',
+        escapeRouteText,
+        TEXT.escape_routes.priority
+      )
+    );
+  }
+
+  // Door width requirements
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Exit Door Widths',
+      TEXT.door_widths.content,
+      TEXT.door_widths.priority
+    )
+  );
+
+  // Table of requirements per firecell
+  if (firecellRequirements.length > 0) {
+    const headers = TEXT.firecell_routes.table_headers;
+    const rows = firecellRequirements.map(req => {
+      const widthText = `Horiz: ${req.minWidthHorizontal}mm, Vert: ${req.minWidthVertical}mm`;
+      return [
+        `Firecell ${req.firecellNum}`,
+        req.load.toString(),
+        req.minRoutes.toString(),
+        widthText
+      ];
+    });
+
+    // Add total row
+    const totalMinRoutes = getMinimumEscapeRoutes(totalOccupantLoad);
+    const totalWidthHorizontal = getMinimumExitWidth(totalOccupantLoad, false);
+    const totalWidthVertical = getMinimumExitWidth(totalOccupantLoad, true);
+    const totalWidthText = `Horiz: ${totalWidthHorizontal}mm, Vert: ${totalWidthVertical}mm`;
+
+    rows.push([
+      'TOTAL',
+      totalOccupantLoad.toString(),
+      totalMinRoutes.toString(),
+      totalWidthText
+    ]);
+
+    paragraphs.push(
+      createTableParagraph(
+        TEXT.firecell_routes.title,
+        headers,
+        rows
+      )
+    );
+  }
+
+  // Corridor widths
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Corridor and Passageway Widths',
+      TEXT.corridor_widths.content,
+      TEXT.corridor_widths.priority
+    )
+  );
+
+  // Signage and emergency lighting
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Exit Signage and Emergency Lighting',
+      TEXT.signage_emergency_lighting.content,
+      TEXT.signage_emergency_lighting.priority
+    )
+  );
+
+  // Accessible exits (if applicable)
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Accessible Means of Escape',
+      TEXT.accessible_exits.content,
+      TEXT.accessible_exits.priority
+    )
+  );
+
+  // Occupancy verification
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Occupancy Limitations',
+      TEXT.occupancy_verification.content,
+      TEXT.occupancy_verification.priority
+    )
+  );
+
+  return paragraphs;
+}
+
+module.exports = { generateRequirementsParagraphs };

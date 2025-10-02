@@ -1,0 +1,521 @@
+const NotificationService = require('../services/notificationService');
+const logger = require('../utils/logger');
+
+class NotificationController {
+  // Get user's notifications
+  static async getUserNotifications(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { limit = 50, offset = 0, includeRead = true } = req.query;
+
+      const notifications = await NotificationService.getUserNotifications(
+        userId,
+        parseInt(limit),
+        parseInt(offset),
+        includeRead === 'true'
+      );
+
+      res.json(notifications);
+    } catch (error) {
+      logger.error('Error getting user notifications:', { error: error.message });
+      res.status(500).json({ error: 'Failed to get notifications', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Get unread notification count
+  static async getUnreadCount(req, res) {
+    try {
+      const userId = req.session.userId;
+
+      const count = await NotificationService.getUnreadNotificationCount(userId);
+
+      res.json({ unread_count: count });
+    } catch (error) {
+      logger.error('Error getting unread notification count:', { error: error.message });
+      res.status(500).json({ error: 'Failed to get unread count', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Mark notification as read
+  static async markAsRead(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { notificationId } = req.params;
+
+      if (!notificationId) {
+        return res.status(400).json({ error: 'Notification ID is required', code: 'BAD_REQUEST' });
+      }
+
+      await NotificationService.markNotificationAsRead(userId, notificationId);
+
+      res.json({ success: true, message: 'Notification marked as read' });
+    } catch (error) {
+      logger.error('Error marking notification as read:', { error: error.message });
+      res.status(500).json({ error: 'Failed to mark notification as read', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Mark all notifications as read
+  static async markAllAsRead(req, res) {
+    try {
+      const userId = req.session.userId;
+
+      const result = await NotificationService.markAllNotificationsAsRead(userId);
+
+      res.json({
+        success: true,
+        message: 'All notifications marked as read',
+        updated_count: result.count
+      });
+    } catch (error) {
+      logger.error('Error marking all notifications as read:', { error: error.message });
+      res.status(500).json({ error: 'Failed to mark all notifications as read', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Delete user notification
+  static async deleteNotification(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { notificationId } = req.params;
+
+      if (!notificationId) {
+        return res.status(400).json({ error: 'Notification ID is required', code: 'BAD_REQUEST' });
+      }
+
+      await NotificationService.deleteUserNotification(userId, notificationId);
+
+      res.json({ success: true, message: 'Notification deleted' });
+    } catch (error) {
+      logger.error('Error deleting notification:', { error: error.message });
+      res.status(500).json({ error: 'Failed to delete notification', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Get user's subscriptions
+  static async getUserSubscriptions(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { entityType } = req.query;
+
+      const subscriptions = await NotificationService.getUserSubscriptions(userId, entityType);
+
+      res.json(subscriptions);
+    } catch (error) {
+      logger.error('Error getting user subscriptions:', { error: error.message });
+      res.status(500).json({ error: 'Failed to get subscriptions', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Subscribe to entity notifications
+  static async subscribeToEntity(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { entity_type, entity_id, notification_preferences } = req.body;
+
+      if (!entity_type || !entity_id) {
+        return res.status(400).json({ error: 'entity_type and entity_id are required', code: 'MISSING_FIELDS' });
+      }
+
+      const subscription = await NotificationService.subscribeToEntity(
+        userId,
+        entity_type,
+        entity_id,
+        notification_preferences
+      );
+
+      res.json(subscription);
+    } catch (error) {
+      logger.error('Error subscribing to entity:', { error: error.message });
+      res.status(500).json({ error: 'Failed to subscribe to entity', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Unsubscribe from entity notifications
+  static async unsubscribeFromEntity(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { entity_type, entity_id } = req.body;
+
+      if (!entity_type || !entity_id) {
+        return res.status(400).json({ error: 'entity_type and entity_id are required', code: 'MISSING_FIELDS' });
+      }
+
+      await NotificationService.unsubscribeFromEntity(userId, entity_type, entity_id);
+
+      res.json({ success: true, message: 'Unsubscribed successfully' });
+    } catch (error) {
+      logger.error('Error unsubscribing from entity:', { error: error.message });
+      res.status(500).json({ error: 'Failed to unsubscribe from entity', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Create notification (internal use - admin/project_manager only)
+  static async createNotification(req, res) {
+    try {
+      // Allow admin and project_manager users to create notifications
+      const userRoles = req.session.roles || [];
+      if (!userRoles.includes('admin') && !userRoles.includes('project_manager')) {
+        return res.status(403).json({ error: 'Access denied', code: 'ACCESS_DENIED' });
+      }
+
+      const { entity_type, entity_id, notification_type, title, message, data, user_ids, link } = req.body;
+
+      if (!entity_type || !entity_id || !notification_type || !title || !message) {
+        return res.status(400).json({
+          error: 'entity_type, entity_id, notification_type, title, and message are required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      // Validate user_ids if provided (for broadcast notifications)
+      if (user_ids && (!Array.isArray(user_ids) || user_ids.length === 0)) {
+        return res.status(400).json({
+          error: 'user_ids must be a non-empty array when provided',
+          code: 'BAD_REQUEST'
+        });
+      }
+
+      // If this is a broadcast notification, include sender information
+      let notificationData = data;
+      if (entity_type === 'broadcast' && user_ids && user_ids.length > 0) {
+        notificationData = {
+          ...data,
+          sent_by_user_id: req.session.userId,
+          recipient_count: user_ids.length
+        };
+      }
+
+      const notification = await NotificationService.createNotification(
+        entity_type,
+        entity_id,
+        notification_type,
+        title,
+        message,
+        notificationData,
+        user_ids,
+        link
+      );
+
+      res.json(notification);
+    } catch (error) {
+      logger.error('Error creating notification:', { error: error.message });
+      res.status(500).json({ error: 'Failed to create notification', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Helper endpoint to notify entity creation
+  static async notifyEntityCreated(req, res) {
+    try {
+      const userRoles = req.session.roles || [];
+      if (!userRoles.includes('admin') && !userRoles.includes('project_manager')) {
+        return res.status(403).json({ error: 'Access denied', code: 'ACCESS_DENIED' });
+      }
+
+      const { entity_type, entity_id, entity_title } = req.body;
+      const createdByUserId = req.session.userId;
+
+      if (!entity_type || !entity_id || !entity_title) {
+        return res.status(400).json({
+          error: 'entity_type, entity_id, and entity_title are required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      const notification = await NotificationService.notifyEntityCreated(
+        entity_type,
+        entity_id,
+        entity_title,
+        createdByUserId
+      );
+
+      res.json(notification);
+    } catch (error) {
+      logger.error('Error notifying entity creation:', { error: error.message });
+      res.status(500).json({ error: 'Failed to notify entity creation', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Helper endpoint to notify entity updates
+  static async notifyEntityUpdated(req, res) {
+    try {
+      const userRoles = req.session.roles || [];
+      if (!userRoles.includes('admin') && !userRoles.includes('project_manager')) {
+        return res.status(403).json({ error: 'Access denied', code: 'ACCESS_DENIED' });
+      }
+
+      const { entity_type, entity_id, entity_title, changes } = req.body;
+      const updatedByUserId = req.session.userId;
+
+      if (!entity_type || !entity_id || !entity_title) {
+        return res.status(400).json({
+          error: 'entity_type, entity_id, and entity_title are required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      const notification = await NotificationService.notifyEntityUpdated(
+        entity_type,
+        entity_id,
+        entity_title,
+        updatedByUserId,
+        changes
+      );
+
+      res.json(notification);
+    } catch (error) {
+      logger.error('Error notifying entity update:', { error: error.message });
+      res.status(500).json({ error: 'Failed to notify entity update', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Helper endpoint to notify status changes
+  static async notifyEntityStatusChanged(req, res) {
+    try {
+      const userRoles = req.session.roles || [];
+      if (!userRoles.includes('admin') && !userRoles.includes('project_manager')) {
+        return res.status(403).json({ error: 'Access denied', code: 'ACCESS_DENIED' });
+      }
+
+      const { entity_type, entity_id, entity_title, old_status, new_status } = req.body;
+      const changedByUserId = req.session.userId;
+
+      if (!entity_type || !entity_id || !entity_title || !old_status || !new_status) {
+        return res.status(400).json({
+          error: 'entity_type, entity_id, entity_title, old_status, and new_status are required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      const notification = await NotificationService.notifyEntityStatusChanged(
+        entity_type,
+        entity_id,
+        entity_title,
+        old_status,
+        new_status,
+        changedByUserId
+      );
+
+      res.json(notification);
+    } catch (error) {
+      logger.error('Error notifying status change:', { error: error.message });
+      res.status(500).json({ error: 'Failed to notify status change', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  // Todo management endpoints
+  static async createTodo(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { title, message, due_date, assigned_to_user_id } = req.body;
+
+      if (!title || !message) {
+        return res.status(400).json({ error: 'Title and message are required', code: 'MISSING_FIELDS' });
+      }
+
+      const todo = await NotificationService.createTodo(
+        userId,
+        title,
+        message,
+        due_date,
+        assigned_to_user_id
+      );
+
+      res.json(todo);
+    } catch (error) {
+      logger.error('Error creating todo:', { error: error.message });
+      res.status(500).json({ error: 'Failed to create todo', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  static async getTodos(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { includeCompleted = false, limit = 50, offset = 0 } = req.query;
+
+      const todos = await NotificationService.getUserTodos(
+        userId,
+        includeCompleted === 'true',
+        parseInt(limit),
+        parseInt(offset)
+      );
+
+      res.json(todos);
+    } catch (error) {
+      logger.error('Error getting todos:', { error: error.message });
+      res.status(500).json({ error: 'Failed to get todos', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  static async getTodoCount(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { includeCompleted = false } = req.query;
+
+      const count = await NotificationService.getTodoCount(
+        userId,
+        includeCompleted === 'true'
+      );
+
+      res.json({ todo_count: count });
+    } catch (error) {
+      logger.error('Error getting todo count:', { error: error.message });
+      res.status(500).json({ error: 'Failed to get todo count', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  static async markTodoComplete(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { notificationId } = req.params;
+
+      if (!notificationId) {
+        return res.status(400).json({ error: 'Notification ID is required', code: 'BAD_REQUEST' });
+      }
+
+      await NotificationService.markTodoComplete(userId, notificationId);
+
+      res.json({ success: true, message: 'Todo marked as complete' });
+    } catch (error) {
+      logger.error('Error marking todo complete:', { error: error.message });
+      res.status(500).json({ error: 'Failed to mark todo complete', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  static async markTodoIncomplete(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { notificationId } = req.params;
+
+      if (!notificationId) {
+        return res.status(400).json({ error: 'Notification ID is required', code: 'BAD_REQUEST' });
+      }
+
+      await NotificationService.markTodoIncomplete(userId, notificationId);
+
+      res.json({ success: true, message: 'Todo marked as incomplete' });
+    } catch (error) {
+      logger.error('Error marking todo incomplete:', { error: error.message });
+      res.status(500).json({ error: 'Failed to mark todo incomplete', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  static async updateTodoDueDate(req, res) {
+    try {
+      const userId = req.session.userId;
+      const { notificationId } = req.params;
+      const { due_date } = req.body;
+
+      if (!notificationId) {
+        return res.status(400).json({ error: 'Notification ID is required', code: 'BAD_REQUEST' });
+      }
+
+      await NotificationService.updateTodoDueDate(userId, notificationId, due_date);
+
+      res.json({ success: true, message: 'Todo due date updated' });
+    } catch (error) {
+      logger.error('Error updating todo due date:', { error: error.message });
+      res.status(500).json({ error: 'Failed to update todo due date', code: 'OPERATION_FAILED' });
+    }
+  }
+
+  /**
+   * Send a response notification to a bug report submitter
+   * Admin only endpoint
+   */
+  static async respondToBugReport(req, res) {
+    try {
+      // 1. Verify admin role
+      const userRoles = req.session.roles || [];
+      if (!userRoles.includes('admin')) {
+        return res.status(403).json({
+          error: 'Access denied. Admin role required.',
+          code: 'ACCESS_DENIED'
+        });
+      }
+
+      // 2. Extract and validate request body
+      const { feedback_id, reporter_user_id, response_message } = req.body;
+
+      if (!feedback_id) {
+        return res.status(400).json({
+          error: 'feedback_id is required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      if (!reporter_user_id) {
+        return res.status(400).json({
+          error: 'reporter_user_id is required',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      if (!response_message || !response_message.trim()) {
+        return res.status(400).json({
+          error: 'response_message is required and cannot be empty',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      // 3. Get feedback details for context (and verify it exists)
+      const prisma = require('../utils/prisma');
+      const feedback = await prisma.feedback_reports.findUnique({
+        where: { feedback_id },
+        select: {
+          feedback: true,
+          username: true,
+          is_anonymous: true
+        }
+      });
+
+      if (!feedback) {
+        return res.status(404).json({
+          error: 'Feedback report not found',
+          code: 'NOT_FOUND'
+        });
+      }
+
+      // 4. Create notification to reporter
+      await NotificationService.createNotification(
+        'bug_feedback_response',                              // entity_type
+        feedback_id,                                          // entity_id
+        'bug_report_response',                                // notification_type
+        'Response to Your Bug Report',                        // title
+        response_message.trim(),                              // message
+        {
+          feedback_id,
+          responder_user_id: req.session.userId,
+          original_feedback_preview: feedback.feedback.substring(0, 200),
+          response_timestamp: new Date().toISOString()
+        },                                                     // data
+        [reporter_user_id],                                   // userIds (send to reporter only)
+        '/bug-feedback'                                       // link
+      );
+
+      logger.info('Bug report response sent', {
+        feedback_id,
+        reporter_user_id,
+        responder_user_id: req.session.userId
+      });
+
+      // 5. Return success
+      res.json({
+        success: true,
+        message: 'Response sent successfully to reporter'
+      });
+
+    } catch (error) {
+      logger.error('Error responding to bug report:', {
+        error: error.message,
+        stack: error.stack
+      });
+      res.status(500).json({
+        error: 'Failed to send response',
+        code: 'OPERATION_FAILED'
+      });
+    }
+  }
+}
+
+module.exports = NotificationController;

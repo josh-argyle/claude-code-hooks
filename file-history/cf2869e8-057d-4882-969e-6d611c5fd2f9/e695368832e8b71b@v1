@@ -1,0 +1,29 @@
+const { getFirecellFloorAreaLimit, parseFirecellLimit } = require('../../data/services/firecell-floor-area-service');
+
+function processFirecellFloorAreaLimits(firecell) {
+  const limit = getFirecellFloorAreaLimit(firecell.riskGroup, firecell.isSprinklered);
+
+  if (!limit) {
+    firecell.compliance['firecell-floor-area'] = false;
+    return;
+  }
+
+  if (limit === 'n/a') {
+    firecell.compliance['firecell-floor-area'] = false;
+    return;
+  }
+
+  const parsedLimit = parseFirecellLimit(limit);
+
+  if (parsedLimit.value === 'Unlimited') {
+    firecell.compliance['firecell-floor-area'] = true;
+    return;
+  }
+
+  const numericLimit = parseInt(parsedLimit.value, 10);
+  firecell.compliance['firecell-floor-area'] = firecell.floorArea <= numericLimit;
+}
+
+module.exports = {
+  processFirecellFloorAreaLimits
+};

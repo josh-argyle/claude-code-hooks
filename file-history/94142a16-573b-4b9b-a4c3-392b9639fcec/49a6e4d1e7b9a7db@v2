@@ -1,0 +1,644 @@
+# SM Risk Group: Implement Bed Spaces Instead of Occupant Load
+
+## Executive Summary
+
+For SM (Sleeping/Multi-family residential) and SI (Sleeping institutional) risk groups, CAS2 regulations specify using **"Bed Spaces"** as the occupancy metric instead of calculated occupant load from floor area. This plan implements the required change by modifying the form interface to display "Bed Spaces" for SM/SI risk groups while maintaining backward compatibility.
+
+**Implementation Strategy**: Label-only change - reuse existing `occupantLoad` field with dynamic labeling based on risk group.
+
+**Impact**: UI enhancement only - no data model changes, no breaking changes, full backward compatibility.
+
+---
+
+## Research Summary: CAS2 Regulatory Requirements
+
+### Primary Sources (Pages 33-38)
+
+#### 1. Page 37, Section 1.4.5 - Bed Spaces Definition
+> **"The requirements of this Acceptable Solution account for the fact that other people may be present in the building or firecell and additional calculations are not required when an occupant load is derived by bed spaces (i.e. for risk groups SM and SI)."**
+
+**Key Points:**
+- SM and SI use bed spaces as the primary occupancy metric
+- Bed spaces already account for staff, visitors, and other occupants
+- No additional calculations required
+
+#### 2. Page 39, Table 1.2 - Occupant Densities
+| Activity | Occupancy density (m²/person) |
+|----------|-------------------------------|
+| **Sleeping non institutional** | **Bed spaces** |
+| Care and detention | Bed spaces, see Paragraph 1.4.6 |
+
+**Interpretation:**
+- "Sleeping non institutional" is the primary occupant type for SM risk group
+- Density is specified as "Bed spaces" (not m²/person like other activities)
+- This is the regulatory requirement, not an optional alternative
+
+#### 3. Page 34, Table 1.1 - SM Risk Group Definition
+**SM - Sleeping (non-institutional)** includes:
+- Permanent accommodation: Apartment buildings, multi-unit dwellings
+- Transient accommodation: Hotels, motels, hostels, backpackers, cabins
+- Educational accommodation: University halls, school boarding hostels
+- Where 6+ people pay for accommodation: Boarding houses, homestays, B&Bs
+
+#### 4. Page 37, Section 1.4.6 - SI Bed Spaces Definition
+For SI (care/detention), "bed" includes:
+- Beds, recliner/lounge chairs, dentist chairs, treatment tables
+- Any furniture where occupant may be for treatment, care, or detention
+
+**Note**: SM has simpler definition - just sleeping beds.
+
+---
+
+## Current System Analysis
+
+### Data Flow
+```
+User Form Input → Server Processing → ProjectModel Validation → Fire Safety Calculations
+```
+
+### Current Implementation for SM Firecells
+
+**Form** (`/views/project-form.pug` line 71-72):
+```pug
+div
+  label Occupant Load:
+  input(type="number", name="firecells[0][occupantLoad]", min="0", step="1", required)
+```
+
+**Server** (`/server.js` line 62):
+```javascript
+occupantLoad: parseFloat(firecellData.occupantLoad)
+```
+
+**Model Validation** (`/api/models/project-model.js` line 72-74):
+```javascript
+if (firecellData.occupantLoad === undefined ||
+    typeof firecellData.occupantLoad !== 'number' ||
+    firecellData.occupantLoad < 0) {
+  throw new Error('Occupant load is required and must be a non-negative number');
+}
+```
+
+**Data** (`/api/data/data/occupant-density.js` line 47):
+```javascript
+'Sleeping non institutional': 'Bed spaces'
+```
+
+### Current Pattern: Risk-Group-Specific Fields
+
+The system already handles conditional fields for specific risk groups:
+
+**VP Risk Group** (`hasVehicleStacker`):
+```pug
+div.vp-only(style="display: none;")
+  label Has Vehicle Stacker:
+  select(name="firecells[0][hasVehicleStacker]")
+```
+
+**CA Risk Group** (`isCinemaOrTheatre`, `isEarlyChildhoodCentre`):
+```pug
+div.ca-only(style="display: none;")
+  label Is Cinema or Theatre:
+  select(name="firecells[0][isCinemaOrTheatre]")
+```
+
+**Pattern**: Conditional visibility + optional fields in model validation (lines 94-100, 114-138)
+
+---
+
+## Design Decision: Label Change vs. Separate Field
+
+### Option 1: Dynamic Label Change (RECOMMENDED ✅)
+**Pros:**
+- No data model changes required
+- Full backward compatibility
+- Simpler implementation (frontend only)
+- Bed spaces and occupant load are functionally equivalent numbers
+- Matches CAS2 intent (bed spaces IS the occupant load for SM/SI)
+
+**Cons:**
+- Less explicit in data layer
+- Requires comment documentation
+
+### Option 2: Separate `bedSpaces` Field
+**Pros:**
+- More explicit in data model
+- Clearer separation of concepts
+
+**Cons:**
+- Breaking change for existing data
+- Requires data migration
+- Adds complexity to validation logic
+- Must handle both fields in calculations
+- Overkill for what is essentially a labeling issue
+
+### Decision: Option 1 - Dynamic Label Change
+
+**Rationale:**
+1. CAS2 Section 1.4.5 confirms bed spaces ARE the occupant load for SM/SI (no separate concept)
+2. Both are just numbers representing occupancy
+3. Fire safety calculations use them identically
+4. No regulatory requirement for separate storage
+5. Follows principle of simplicity
+
+---
+
+## Implementation Plan
+
+### Phase 1: Frontend - Dynamic Label Switching
+
+#### A. Add Label Update Function (`/public/js/form.js`)
+
+**Location**: After line 91 (between utility functions and addFirecell())
+
+```javascript
+/**
+ * Updates the Occupant Load label based on risk group
+ * SM/SI risk groups use "Bed Spaces" per CAS2 Table 1.2
+ * Other risk groups use "Occupant Load"
+ */
+function updateOccupantLoadLabel(firecellElement, riskGroup) {
+  // Find the occupant load input and its label
+  const occupantLoadInput = firecellElement.querySelector('input[name*="occupantLoad"]');
+  if (!occupantLoadInput) return;
+
+  // Find the label (could be in different positions depending on when firecell was created)
+  const parentDiv = occupantLoadInput.closest('div');
+  const label = parentDiv ? parentDiv.querySelector('label') : null;
+
+  if (!label) return;
+
+  // Update label text and tooltip based on risk group
+  if (riskGroup === 'SM' || riskGroup === 'SI') {
+    label.textContent = 'Bed Spaces:';
+    occupantLoadInput.setAttribute('title',
+      'Number of beds (accounts for staff and visitors per CAS2 1.4.5)');
+    occupantLoadInput.setAttribute('placeholder', 'e.g., 10 beds');
+  } else {
+    label.textContent = 'Occupant Load:';
+    occupantLoadInput.setAttribute('title', 'Number of occupants');
+    occupantLoadInput.setAttribute('placeholder', 'e.g., 50 people');
+  }
+}
+```
+
+#### B. Integrate Label Updates into Existing Functions
+
+**1. Modify `toggleConditionalFields()` function** (line ~310):
+
+```javascript
+function toggleConditionalFields(selectElement) {
+  const firecell = selectElement.closest('.firecell-item');
+  const vpFields = firecell.querySelector('.vp-only');
+  const caFields = firecell.querySelector('.ca-only');
+
+  // Hide all conditional fields first
+  if (vpFields) vpFields.style.display = 'none';
+  if (caFields) caFields.style.display = 'none';
+
+  // Show relevant fields based on risk group
+  if (selectElement.value === 'VP' && vpFields) {
+    vpFields.style.display = 'block';
+  } else if (selectElement.value === 'CA' && caFields) {
+    caFields.style.display = 'block';
+  }
+
+  // ADD THIS: Update occupant load label based on risk group
+  updateOccupantLoadLabel(firecell, selectElement.value);
+}
+```
+
+**2. Modify `addFirecell()` function** (line ~93):
+
+Add label update after event listeners are attached (around line 247):
+
+```javascript
+  // Add event listener to the new risk group select
+  const newRiskGroupSelect = firecellDiv.querySelector('select[name*="riskGroup"]');
+  newRiskGroupSelect.addEventListener('change', function() {
+    toggleConditionalFields(this);
+  });
+
+  // ADD THIS: Initialize label for the new firecell (default to Occupant Load)
+  updateOccupantLoadLabel(firecellDiv, '');
+```
+
+**3. Initialize existing firecell on page load** (line ~504):
+
+Add in `DOMContentLoaded` event listener after existing event listeners (around line 543):
+
+```javascript
+  // Add event listeners to existing risk group selects
+  const existingSelects = document.querySelectorAll('select[name*="riskGroup"]');
+  existingSelects.forEach(select => {
+    select.addEventListener('change', function() {
+      toggleConditionalFields(this);
+    });
+
+    // ADD THIS: Initialize labels for existing firecells based on current selection
+    const firecell = select.closest('.firecell-item');
+    if (firecell) {
+      updateOccupantLoadLabel(firecell, select.value);
+    }
+  });
+```
+
+#### C. Update Test Data (`fillTestData()` function, line ~391)
+
+**Current SM firecell test data** (line ~479-481):
+```javascript
+// Occupant load
+const occupantLoadInput = secondFirecell.querySelector('input[name*="occupantLoad"]');
+occupantLoadInput.value = 20;
+```
+
+**UPDATE TO** (more realistic bed spaces value):
+```javascript
+// Occupant load (bed spaces for SM)
+const occupantLoadInput = secondFirecell.querySelector('input[name*="occupantLoad"]');
+occupantLoadInput.value = 10; // 10 beds (e.g., 10-bed hostel/boarding house)
+```
+
+**Rationale**: 10 bed spaces is more realistic than 20 for test data in a residential setting.
+
+---
+
+### Phase 2: Backend - Documentation Only
+
+#### A. Add Clarifying Comment in Model Validation
+
+**File**: `/api/models/project-model.js`
+**Location**: Line 72 (before occupantLoad validation)
+
+```javascript
+    // Validate occupant load
+    // Note: For SM/SI risk groups, occupantLoad represents bed spaces per CAS2 Table 1.2.
+    // For other risk groups, it represents calculated occupant load from floor area density.
+    if (firecellData.occupantLoad === undefined || typeof firecellData.occupantLoad !== 'number' || firecellData.occupantLoad < 0) {
+      throw new Error('Occupant load is required and must be a non-negative number');
+    }
+```
+
+#### B. No Server Changes Required
+
+`/server.js` line 62 already correctly extracts `occupantLoad` - no changes needed.
+
+---
+
+### Phase 3: Test Updates - Documentation Only
+
+All test files using SM firecells should have comments clarified (but no logic changes).
+
+**Files with SM test data** (19 files found):
+- `/tests/unit/NEW-EDGE-CASE-TESTS.test.js`
+- `/tests/integration/project-model-integration.test.js`
+- `/tests/integration/occupant-load-integration.test.js`
+- `/tests/unit/processors/fire-safety-systems.test.js`
+- `/tests/unit/processors/fire-resistance.test.js`
+- `/tests/unit/processors/firecells.test.js`
+- And 13 more processor/integration tests
+
+**Example comment update:**
+```javascript
+// BEFORE
+const smFirecell = {
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 20,
+  escapeHeight: 4,
+  isSprinklered: false,
+  floorArea: 200,
+  floor: '1'
+};
+
+// AFTER
+const smFirecell = {
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 20, // bed spaces (not calculated from floor area per CAS2 1.4.5)
+  escapeHeight: 4,
+  isSprinklered: false,
+  floorArea: 200,
+  floor: '1'
+};
+```
+
+**Approach**: Add inline comments - no changes to test assertions or logic needed.
+
+---
+
+## Edge Cases & Considerations
+
+### 1. SI Risk Group (Care/Detention)
+**Status**: Will also benefit from label change automatically
+**Implementation**: Update label function handles both SM and SI
+**Note**: SI has broader bed definition (treatment tables, chairs per 1.4.6) but form still uses "Bed Spaces"
+
+### 2. Mixed-Use Buildings
+**Scenario**: Building with CA (office) on ground floor, SM (residential) on upper floors
+**Behavior**: Each firecell labeled independently based on its risk group
+**Implementation**: `updateOccupantLoadLabel()` is called per firecell
+
+### 3. Risk Group Changes
+**Scenario**: User changes existing firecell from CA to SM
+**Behavior**: Label updates immediately via `toggleConditionalFields()` → `updateOccupantLoadLabel()`
+**Data**: Existing occupantLoad value retained (user can adjust as needed)
+
+### 4. Test Data Migration
+**Scenario**: Existing test fixtures with SM firecells
+**Impact**: None - tests continue to work with existing values
+**Enhancement**: Add comments for clarity
+
+### 5. User Workflow
+**Scenario**: User creating new SM firecell
+**Steps**:
+1. Select "SM" risk group → Label changes to "Bed Spaces"
+2. Select "Sleeping non institutional" occupant type
+3. Enter number of beds (e.g., 15)
+4. Complete other fields
+5. Submit form → Stored as `occupantLoad: 15`
+
+### 6. Backward Compatibility
+**Existing data**: No migration needed - all existing SM firecells remain valid
+**API compatibility**: No changes to data structures
+**Calculation compatibility**: Fire safety calculations use occupantLoad identically
+
+---
+
+## Testing Strategy
+
+### Manual Testing Checklist
+
+#### Test 1: Label Updates on Risk Group Selection
+- [ ] Open form, select SM → verify "Bed Spaces" label appears
+- [ ] Select SI → verify "Bed Spaces" label appears
+- [ ] Select CA → verify "Occupant Load" label appears
+- [ ] Select WB → verify "Occupant Load" label appears
+- [ ] Select VP → verify "Occupant Load" label appears
+
+#### Test 2: Label Persistence with Risk Group Changes
+- [ ] Create firecell, select SM → verify "Bed Spaces"
+- [ ] Change to CA → verify "Occupant Load"
+- [ ] Change back to SM → verify "Bed Spaces" again
+
+#### Test 3: Multiple Firecells
+- [ ] Add 3 firecells: SM, CA, SI
+- [ ] Verify labels: "Bed Spaces", "Occupant Load", "Bed Spaces"
+- [ ] Change order of creation → verify labels still correct
+
+#### Test 4: Fill Test Data Button
+- [ ] Click "Fill Test Data" button
+- [ ] Verify first firecell (CA) shows "Occupant Load"
+- [ ] Verify second firecell (SM) shows "Bed Spaces"
+- [ ] Verify SM occupantLoad value is 10
+
+#### Test 5: Form Submission and Processing
+- [ ] Create SM firecell with 12 bed spaces
+- [ ] Submit form
+- [ ] Verify processing completes successfully
+- [ ] Verify results page shows data correctly
+
+#### Test 6: Tooltip/Placeholder Updates
+- [ ] Hover over SM bed spaces input → verify tooltip mentions CAS2 1.4.5
+- [ ] Check placeholder text → verify shows "e.g., 10 beds"
+- [ ] Switch to CA → verify tooltip reverts to "Number of occupants"
+
+### Automated Testing
+
+#### Unit Tests
+```bash
+npm run test:unit
+```
+
+**Expected**: All existing tests pass without modification
+**Reason**: No data model or calculation changes
+
+#### Integration Tests
+```bash
+npm run test:integration
+```
+
+**Expected**: All integration tests pass
+**Coverage**: Verify SM firecells process through pipeline correctly
+
+#### E2E Tests
+```bash
+npm run test:e2e
+```
+
+**Expected**: Form submission tests pass
+**Coverage**: Full workflow from form to results
+
+---
+
+## Files Modified Summary
+
+### Modified Files (3 files)
+
+1. **`/public/js/form.js`**
+   - Lines added: ~30 lines (new function + 3 integration points)
+   - Function added: `updateOccupantLoadLabel()`
+   - Functions modified: `toggleConditionalFields()`, `addFirecell()`, DOMContentLoaded handler
+   - Test data updated: `fillTestData()` SM occupantLoad value
+
+2. **`/api/models/project-model.js`**
+   - Lines added: 3 lines (comment only)
+   - Location: Line 72 (before occupantLoad validation)
+   - Type: Documentation comment
+
+3. **`/scripts/pipeline-test.js`**
+   - Lines modified: 1 line (occupantLoad value)
+   - Line 34: Change from 20 to 10 for more realistic bed spaces
+
+### Documentation Updates (23 test files)
+- Add inline comments: `occupantLoad: 20, // bed spaces for SM`
+- No logic changes required
+- Optional enhancement for clarity
+
+---
+
+## Implementation Sequence
+
+### Step 1: Prepare
+- [ ] Create new branch: `feature/sm-bed-spaces-label`
+- [ ] Run full test suite to establish baseline: `npm test`
+- [ ] Document current test pass rate
+
+### Step 2: Implement Frontend Changes
+- [ ] Add `updateOccupantLoadLabel()` function to `/public/js/form.js`
+- [ ] Integrate into `toggleConditionalFields()`
+- [ ] Integrate into `addFirecell()`
+- [ ] Integrate into DOMContentLoaded initialization
+- [ ] Update `fillTestData()` SM occupantLoad value
+
+### Step 3: Add Documentation
+- [ ] Add comment in `/api/models/project-model.js`
+- [ ] Update `/scripts/pipeline-test.js` SM occupantLoad value
+
+### Step 4: Manual Testing
+- [ ] Test all 6 manual test scenarios (see Testing Strategy above)
+- [ ] Verify in multiple browsers (Chrome, Firefox, Safari)
+- [ ] Test on mobile viewport (responsive design)
+
+### Step 5: Automated Testing
+- [ ] Run unit tests: `npm run test:unit`
+- [ ] Run integration tests: `npm run test:integration`
+- [ ] Run e2e tests: `npm run test:e2e`
+- [ ] Verify 100% pass rate maintained
+
+### Step 6: Documentation (Optional)
+- [ ] Add comments to test fixtures for clarity (23 files)
+- [ ] Update any developer documentation if needed
+
+### Step 7: Code Review & Merge
+- [ ] Self-review changes
+- [ ] Request human review/approval
+- [ ] Address any feedback
+- [ ] Merge to main branch
+
+---
+
+## Risk Assessment
+
+### Low Risk ✅
+- **Frontend-only changes**: No backend logic modified
+- **No data model changes**: Full backward compatibility
+- **No breaking changes**: Existing data remains valid
+- **Progressive enhancement**: Improves UX without affecting functionality
+
+### Minimal Risks
+1. **Label not updating**: Mitigation → Comprehensive manual testing
+2. **Browser compatibility**: Mitigation → Test in major browsers
+3. **JavaScript errors**: Mitigation → Careful DOM querying with null checks
+
+### No Risk Areas
+- Data storage (unchanged)
+- API endpoints (unchanged)
+- Validation logic (unchanged)
+- Fire safety calculations (unchanged)
+- Test assertions (unchanged)
+
+---
+
+## Regulatory Compliance Verification
+
+### CAS2 Requirements Met ✅
+
+1. **Section 1.4.5**: "occupant load is derived by bed spaces (i.e. for risk groups SM and SI)"
+   - ✅ Implemented: Form shows "Bed Spaces" for SM/SI
+
+2. **Table 1.2**: "Sleeping non institutional" → "Bed spaces"
+   - ✅ Implemented: Label changes based on occupant type's risk group
+
+3. **Bed spaces account for other occupants**: "additional calculations are not required"
+   - ✅ Implemented: No special handling needed - bed spaces IS the occupant load
+
+4. **Consistency with SI**: SI also uses bed spaces
+   - ✅ Implemented: Function handles both SM and SI
+
+### Compliance Validation
+
+- [ ] Form correctly displays "Bed Spaces" for SM risk group
+- [ ] Form correctly displays "Bed Spaces" for SI risk group
+- [ ] Form correctly displays "Occupant Load" for CA/WB/WS/VP
+- [ ] Data stored matches regulatory intent (bed spaces for SM/SI)
+- [ ] Calculations use bed spaces correctly (no conversion needed)
+
+---
+
+## Success Criteria
+
+### Functional Requirements ✅
+- [ ] Form displays "Bed Spaces" label for SM risk group
+- [ ] Form displays "Bed Spaces" label for SI risk group
+- [ ] Form displays "Occupant Load" label for CA/WB/WS/VP risk groups
+- [ ] Label updates dynamically when risk group changes
+- [ ] Tooltip provides helpful context about bed spaces
+- [ ] All existing tests pass without modification
+
+### User Experience ✅
+- [ ] Clear distinction between bed spaces and occupant load
+- [ ] Intuitive form behavior (label changes immediately)
+- [ ] Helpful tooltips and placeholders
+- [ ] Consistent with other conditional fields (VP, CA patterns)
+
+### Code Quality ✅
+- [ ] Clean, well-documented code
+- [ ] Follows existing patterns and conventions
+- [ ] No code duplication
+- [ ] Proper error handling (null checks)
+- [ ] Clear function naming and comments
+
+### Documentation ✅
+- [ ] Implementation plan documented (this file)
+- [ ] Code comments explain SM/SI bed spaces
+- [ ] Test fixtures have clarifying comments
+- [ ] Regulatory references included
+
+---
+
+## Future Enhancements (Out of Scope)
+
+### Potential Improvements (Not Required)
+1. **Visual distinction**: Different styling for bed spaces input field
+2. **Validation hints**: Suggest realistic bed space ranges (5-50 beds)
+3. **Help text**: Expandable info box explaining CAS2 1.4.5
+4. **Calculation display**: Show "Based on 10 bed spaces" in results
+5. **Occupant type filtering**: Only show "Sleeping non institutional" for SM
+
+**Decision**: Not implementing now - maintain simplicity and avoid scope creep.
+
+---
+
+## Conclusion
+
+This implementation provides a clean, minimal solution to comply with CAS2 regulatory requirements for SM/SI risk groups using bed spaces. By reusing the existing `occupantLoad` field with dynamic labeling, we achieve:
+
+- ✅ Full regulatory compliance
+- ✅ Zero breaking changes
+- ✅ Minimal code changes (~30 LOC)
+- ✅ Backward compatibility
+- ✅ Clear user experience
+
+The approach follows the principle of **progressive enhancement** - improving the system without disrupting existing functionality.
+
+---
+
+## Todo List for Agent
+
+When implementing this plan, follow these steps in order:
+
+- [ ] 1. Read and understand the complete plan above
+- [ ] 2. Create feature branch: `feature/sm-bed-spaces-label`
+- [ ] 3. Run baseline tests: `npm test` (document pass rate)
+- [ ] 4. Implement `updateOccupantLoadLabel()` function in `/public/js/form.js`
+- [ ] 5. Integrate label update into `toggleConditionalFields()` function
+- [ ] 6. Integrate label update into `addFirecell()` function
+- [ ] 7. Integrate label initialization into DOMContentLoaded handler
+- [ ] 8. Update `fillTestData()` SM occupantLoad value to 10
+- [ ] 9. Add documentation comment in `/api/models/project-model.js`
+- [ ] 10. Update SM occupantLoad in `/scripts/pipeline-test.js`
+- [ ] 11. Manual test: Verify label shows "Bed Spaces" for SM
+- [ ] 12. Manual test: Verify label shows "Occupant Load" for CA
+- [ ] 13. Manual test: Verify label changes when switching risk groups
+- [ ] 14. Manual test: Verify "Fill Test Data" button works correctly
+- [ ] 15. Manual test: Verify form submission and processing
+- [ ] 16. Run unit tests: `npm run test:unit`
+- [ ] 17. Run integration tests: `npm run test:integration`
+- [ ] 18. Run e2e tests: `npm run test:e2e`
+- [ ] 19. Verify all tests pass (100% pass rate)
+- [ ] 20. Request human review and approval
+- [ ] 21. Address any feedback from review
+- [ ] 22. Merge to main branch after approval
+
+**Estimated Time**: 2-3 hours (including testing)
+**Complexity**: Low
+**Risk Level**: Low
+**Review Required**: Yes (before merge)
+
+---
+
+**Document Version**: 1.0
+**Created**: 2025-01-XX
+**Author**: Claude (AI Assistant)
+**Status**: Ready for Implementation

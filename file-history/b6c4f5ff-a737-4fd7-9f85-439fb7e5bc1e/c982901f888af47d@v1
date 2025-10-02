@@ -1,0 +1,420 @@
+{
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2021": true
+  },
+  "extends": [
+    "standard"
+  ],
+  "plugins": [],
+  "parserOptions": {
+    "ecmaVersion": 12,
+    "sourceType": "module"
+  },
+  "rules": {
+    "indent": ["error", 2],
+    "quotes": ["error", "single"],
+    "semi": ["error", "always"],
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-console": "off",
+    "comma-dangle": ["error", "never"],
+    "space-before-function-paren": ["error", {
+      "anonymous": "always",
+      "named": "never",
+      "asyncArrow": "always"
+    }],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name=/^(setFullYear|setMonth|setDate|setHours|setMinutes|setSeconds|setUTCFullYear|setUTCMonth|setUTCDate|setUTCHours|setUTCMinutes|setUTCSeconds)$/]",
+        "message": "Avoid custom date manipulation. Use dateUtils.js utilities instead for consistent date handling."
+      },
+      {
+        "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toLocaleDateString']",
+        "message": "Avoid custom date formatting. Use standardized formatting utilities from dateUtils.js."
+      },
+      {
+        "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toISOString']",
+        "message": "Consider using dateUtils.js for consistent date formatting across the application."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='setMonth'] > BinaryExpression[operator=/^[+\\-]$/]",
+        "message": "Manual date arithmetic detected. Use dateUtils.js utilities for date calculations to avoid timezone issues."
+      },
+      {
+        "selector": "Literal[value=/.*<svg.*/]",
+        "message": "Inline SVG string detected. Use Icons.getIcon('icon-name') instead for consistency and performance."
+      },
+      {
+        "selector": "AssignmentExpression[left.property.name='innerHTML'] > Literal[value=/.*<svg.*/]",
+        "message": "SVG in innerHTML detected. Use Icons.getIcon('icon-name') for better performance."
+      },
+      {
+        "selector": "Literal[value=/.*data-lucide.*/]",
+        "message": "Legacy Lucide data-lucide attribute detected. Use Icons.getIcon('icon-name') or +icon('icon-name') in templates."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='createElement'][arguments.0.value='svg']",
+        "message": "Custom SVG element creation detected. Consider using Icons.getIcon() for standard icons."
+      },
+      {
+        "selector": "Program > Comment[value=/^\\s*global\\s+/]",
+        "message": "Do not use /* global */ comments. Add global variables to .eslintrc.json instead."
+      },
+      {
+        "selector": "Literal[value=/style\\s*=\\s*[\"'][^\"']*(?:background|color|border|padding|font|margin|width|height)[^\"']*[\"']/]",
+        "message": "Inline button styling detected. Use standardized button classes from refactor-buttons.css instead."
+      },
+      {
+        "selector": "NewExpression[callee.name='PrismaClient']",
+        "message": "Direct PrismaClient instantiation is not allowed. Use the singleton from '../utils/prisma.js' to prevent connection pool exhaustion."
+      },
+      {
+        "selector": "VariableDeclarator[init.type='NewExpression'][init.callee.name='PrismaClient']",
+        "message": "Direct PrismaClient instantiation detected. Replace with: const prisma = require('../utils/prisma');"
+      },
+      {
+        "selector": "IfStatement[test.type='CallExpression'][test.callee.object.name='socketManager'][test.callee.property.name='isInitialized'] VariableDeclarator[init.type='CallExpression'][init.callee.object.name='socketManager'][init.callee.property.name='getIO']",
+        "message": "Verbose socket emission pattern detected. Use socketManager.emit() or socketManager.emitToRoom() helper methods instead."
+      },
+      {
+        "selector": "CallExpression[callee.object.type='CallExpression'][callee.object.callee.object.name='io'][callee.object.callee.property.name='to'][callee.property.name='emit']",
+        "message": "Direct io.to().emit() usage detected. Use socketManager.emitToRoom(room, event, data) instead."
+      },
+      {
+        "selector": "CallExpression[callee.object.name='io'][callee.property.name='emit']",
+        "message": "Direct io.emit() usage detected. Use socketManager.emit(event, data) for global broadcasts."
+      },
+      {
+        "selector": "FunctionDeclaration[id.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i]",
+        "message": "Custom modal function detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "VariableDeclarator[id.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i][init.type='FunctionExpression']",
+        "message": "Custom modal function detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "MethodDefinition[key.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i]",
+        "message": "Custom modal method detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "Property[method=true][key.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i]",
+        "message": "Custom modal method detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "Property[value.type='FunctionExpression'][key.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i]",
+        "message": "Custom modal method detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "Property[value.type='ArrowFunctionExpression'][key.name=/^(show|open|close|create|init|toggle|display|hide)Modal$/i]",
+        "message": "Custom modal method detected. Use openNewModal/closeNewModal from the standard modal system instead."
+      },
+      {
+        "selector": "CallExpression[callee.object.name='console'][callee.property.name='log']",
+        "message": "Use logger from 'api/utils/logger' instead. Example: const logger = require('../utils/logger'); logger.info('message');"
+      },
+      {
+        "selector": "CallExpression[callee.object.name='console'][callee.property.name='error']",
+        "message": "Use logger from 'api/utils/logger' instead. Example: const logger = require('../utils/logger'); logger.error('message');"
+      },
+      {
+        "selector": "CallExpression[callee.object.name='console'][callee.property.name='warn']",
+        "message": "Use logger from 'api/utils/logger' instead. Example: const logger = require('../utils/logger'); logger.warn('message');"
+      },
+      {
+        "selector": "CallExpression[callee.object.name='console'][callee.property.name='info']",
+        "message": "Use logger from 'api/utils/logger' instead. Example: const logger = require('../utils/logger'); logger.info('message');"
+      },
+      {
+        "selector": "CallExpression[callee.object.name='console'][callee.property.name='debug']",
+        "message": "Use logger from 'api/utils/logger' instead. Example: const logger = require('../utils/logger'); logger.debug('message');"
+      },
+      {
+        "selector": "CallExpression[callee.type='MemberExpression'][callee.property.name='json'][callee.object.type='CallExpression'][callee.object.callee.property.name='status'] > ObjectExpression[properties.length=1][properties.0.key.name='error']",
+        "message": "Error responses must include both 'error' and 'code' fields. Expected format: { error: 'message', code: 'ERROR_CODE', details?: {...} }"
+      }
+      // TEMPORARILY DISABLED - Pagination rules
+      // {
+      //   "selector": "CallExpression[callee.object.name='res'][callee.property.name='json'] > Identifier[name=/^(companies|users|articles|templates|initiatives|projects|suppliers|contacts|surveys|campaigns|reports)$/]",
+      //   "message": "List endpoints should return paginated responses. Expected format: res.json({ data: [...], pagination: { page, limit, total, hasNext, hasPrev } })"
+      // },
+      // {
+      //   "selector": "CallExpression[callee.object.name='res'][callee.property.name='json'] > CallExpression[callee.object.name=/Service$/][callee.property.name=/^getAll/]",
+      //   "message": "List endpoints should return paginated responses. Expected format: res.json({ data: [...], pagination: { page, limit, total, hasNext, hasPrev } })"
+      // }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["**/*.spec.js", "**/*.test.js", "tests/**/*.js"],
+      "env": {
+        "jest": true,
+        "node": true
+      },
+      "rules": {
+        "no-unused-vars": ["error", { 
+          "argsIgnorePattern": "^(_|page$|testInfo$)",
+          "varsIgnorePattern": "^_"
+        }],
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name=/^(setFullYear|setMonth|setDate|setHours|setMinutes|setSeconds|setUTCFullYear|setUTCMonth|setUTCDate|setUTCHours|setUTCMinutes|setUTCSeconds)$/]",
+            "message": "Avoid custom date manipulation. Use dateUtils.js utilities instead for consistent date handling."
+          },
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toLocaleDateString']",
+            "message": "Avoid custom date formatting. Use standardized formatting utilities from dateUtils.js."
+          },
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toISOString']",
+            "message": "Consider using dateUtils.js for consistent date formatting across the application."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["public/js/**/*.js"],
+      "globals": {
+        "Icons": "readonly",
+        "showNotification": "readonly",
+        "showSaveStatus": "readonly",
+        "clearSaveStatus": "readonly",
+        "ErrorHandler": "readonly",
+        "MultiSelectManager": "readonly",
+        "SearchSelectManager": "readonly",
+        "showConfirmationDialog": "readonly",
+        "showInputDialog": "readonly",
+        "ApiClient": "readonly",
+        "FormValidator": "readonly",
+        "LoadingManager": "readonly",
+        "DateUtils": "readonly",
+        "ChartColors": "readonly",
+        "openNewModal": "readonly",
+        "closeNewModal": "readonly",
+        "Vue": "readonly",
+        "logger": "readonly"
+      },
+      "rules": {
+        "no-unused-vars": ["error", { 
+          "argsIgnorePattern": "^_",
+          "varsIgnorePattern": "^(_|MultiSelectManager$|ErrorHandler$|showNotification$|showConfirmationDialog$|showInputDialog$|showSaveStatus$|clearSaveStatus$|ChartColors$)"
+        }],
+        "no-console": "error",
+        "camelcase": "off",
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "VariableDeclarator[id.name='logger']",
+            "message": "Logger redeclaration detected. The 'logger' is already available as a global variable - use it directly without declaration."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='console'][callee.property.name='log']",
+            "message": "Use logger.info() or logger.debug() instead. The 'logger' object is globally available in frontend files."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='console'][callee.property.name='error']",
+            "message": "Use logger.error() instead. The 'logger' object is globally available in frontend files."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='console'][callee.property.name='warn']",
+            "message": "Use logger.warn() instead. The 'logger' object is globally available in frontend files."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='console'][callee.property.name='info']",
+            "message": "Use logger.info() instead. The 'logger' object is globally available in frontend files."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='console'][callee.property.name='debug']",
+            "message": "Use logger.debug() instead. The 'logger' object is globally available in frontend files."
+          },
+          {
+            "selector": "CallExpression[callee.name='fetch']",
+            "message": "Use ApiClient methods instead of direct fetch() calls. Examples: ApiClient.get(url), ApiClient.post(url, data). This ensures consistent error handling, loading states, and request management."
+          },
+          {
+            "selector": "CallExpression[callee.object.property.name='classList'][callee.property.name='add'] > Literal[value=/^[a-z]+-[a-z]+-[a-z]+$/]",
+            "message": "Multi-hyphen class names should use BEM convention. Instead of 'word-word-word', use 'block__element--modifier'. Example: 'card-header-large' → 'card__header--large'"
+          },
+          {
+            "selector": "Literal[value=/class\\s*=\\s*[\"'][^\"']*[a-z]+-[a-z]+-[a-z]+/]",
+            "message": "Multi-hyphen class names in templates should use BEM convention. Instead of 'word-word-word', use 'block__element--modifier'. Example: 'card-header-large' → 'card__header--large'"
+          },
+          {
+            "selector": "CallExpression[callee.object.property.name='classList'][callee.property.name='add'] > Literal[value='error']",
+            "message": "Consider using FormValidator.setFieldState() instead of manually adding 'error' class. Example: FormValidator.setFieldState(field, 'error', 'Error message')"
+          },
+          {
+            "selector": "AssignmentExpression[left.property.name='innerHTML'][right.type='TemplateLiteral'] Literal[value=/.*loading.*/i]",
+            "message": "Use LoadingManager.show() instead of manual loading HTML. Example: LoadingManager.show(element, { message: 'Loading...' })"
+          },
+          {
+            "selector": "AssignmentExpression[left.property.name='innerHTML'][right.type='Literal'][right.value=/.*loading.*/i]",
+            "message": "Use LoadingManager.show() instead of manual loading HTML. Example: LoadingManager.show(element, { message: 'Loading...' })"
+          },
+          {
+            "selector": "CallExpression[callee.object.property.name='classList'][callee.property.name='add'] > Literal[value=/^(loading|spinner|is-loading)$/]",
+            "message": "Use LoadingManager.show() instead of manually adding loading classes. Example: LoadingManager.show(element, options)"
+          }
+        ]
+      }
+    },
+    {
+      "files": ["api/**/*.js"],
+      "plugins": ["local-rules"],
+      "rules": {
+        "camelcase": "off",
+        "local-rules/require-error-code": "error"
+      }
+    },
+    {
+      "files": ["client/routes/clientRoutes.js"],
+      "plugins": ["local-rules"],
+      "rules": {
+        "local-rules/no-services-in-client-routes": "error"
+      }
+    },
+    {
+      "files": ["api/routes/**/*.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "CallExpression[callee.object.name='router'][callee.property.name=/^(get|post|put|delete)$/]",
+            "message": "All routes should have JSDoc documentation above them. Required format: /** @route METHOD /path @desc Description @access Permission @param {type} name - Description @returns {type} Description */"
+          }
+        ]
+      }
+    },
+    {
+      "files": ["api/services/**/*.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "ClassDeclaration",
+            "message": "Services should export individual functions, not classes. Use: module.exports = { functionName }"
+          },
+          {
+            "selector": "ExportDefaultDeclaration",
+            "message": "Use module.exports instead of export default in services"
+          }
+        ]
+      }
+    },
+    {
+      "files": ["api/controllers/**/*.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "warn",
+          {
+            "selector": "ClassDeclaration",
+            "message": "Controllers should be object literals. Use: const controllerName = { methods }; module.exports = controllerName;"
+          },
+          {
+            "selector": "ExportDefaultDeclaration",
+            "message": "Use module.exports instead of export default in controllers"
+          },
+          // TEMPORARILY DISABLED - Pagination rules
+          // {
+          //   "selector": "CallExpression[callee.object.name='res'][callee.property.name='json'] > Identifier[name=/^(companies|users|articles|templates|initiatives|projects|suppliers|contacts|surveys|campaigns|reports)$/]",
+          //   "message": "List endpoints should return paginated responses. Expected format: res.json({ data: [...], pagination: { page, limit, total, hasNext, hasPrev } })"
+          // },
+          // {
+          //   "selector": "CallExpression[callee.object.name='res'][callee.property.name='json'] > CallExpression[callee.object.name=/Service$/][callee.property.name=/^getAll/]",
+          //   "message": "List endpoints should return paginated responses. Expected format: res.json({ data: [...], pagination: { page, limit, total, hasNext, hasPrev } })"
+          // },
+          {
+            "selector": "CallExpression[callee.object.name='res'][callee.property.name='status'][arguments.0.value=500] ~ CallExpression[callee.property.name='json'] > ObjectExpression > Property[key.name='error'][value.type='Literal'][value.value='Internal server error']",
+            "message": "Use specific error messages with codes. Example: { error: 'Database connection failed', code: 'DB_CONNECTION_ERROR', details: {...} }"
+          }
+        ]
+      }
+    },
+    {
+      "files": ["public/js/icons.js", "docs/**/*.js", "eslint-plugin-local-rules.js", "api/utils/prisma.js", "api/utils/logger.js", "api/scripts/**/*.js", "api/sockets/**/*.js", "api/utils/socketManager.js", "api/services/notificationService.js"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["public/js/admin-config.js", "public/js/tenderbook.js"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name=/^(setFullYear|setMonth|setDate|setHours|setMinutes|setSeconds|setUTCFullYear|setUTCMonth|setUTCDate|setUTCHours|setUTCMinutes|setUTCSeconds)$/]",
+            "message": "Avoid custom date manipulation. Use dateUtils.js utilities instead for consistent date handling."
+          },
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toLocaleDateString']",
+            "message": "Avoid custom date formatting. Use standardized formatting utilities from dateUtils.js."
+          },
+          {
+            "selector": "CallExpression[callee.object.type='Identifier'][callee.property.name='toISOString']",
+            "message": "Consider using dateUtils.js for consistent date formatting across the application."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='setMonth'] > BinaryExpression[operator=/^[+\\-]$/]",
+            "message": "Manual date arithmetic detected. Use dateUtils.js utilities for date calculations to avoid timezone issues."
+          },
+          {
+            "selector": "Literal[value=/.*<svg.*/]",
+            "message": "Inline SVG string detected. Use Icons.getIcon('icon-name') instead for consistency and performance."
+          },
+          {
+            "selector": "AssignmentExpression[left.property.name='innerHTML'] > Literal[value=/.*<svg.*/]",
+            "message": "SVG in innerHTML detected. Use Icons.getIcon('icon-name') for better performance."
+          },
+          {
+            "selector": "Literal[value=/.*data-lucide.*/]",
+            "message": "Legacy Lucide data-lucide attribute detected. Use Icons.getIcon('icon-name') or +icon('icon-name') in templates."
+          },
+          {
+            "selector": "CallExpression[callee.property.name='createElement'][arguments.0.value='svg']",
+            "message": "Custom SVG element creation detected. Consider using Icons.getIcon() for standard icons."
+          },
+          {
+            "selector": "Program > Comment[value=/^\\s*global\\s+/]",
+            "message": "Do not use /* global */ comments. Add global variables to .eslintrc.json instead."
+          },
+          {
+            "selector": "Literal[value=/style\\s*=\\s*[\"'][^\"']*(?:background|color|border|padding|font|margin|width|height)[^\"']*[\"']/]",
+            "message": "Inline button styling detected. Use standardized button classes from refactor-buttons.css instead."
+          },
+          {
+            "selector": "NewExpression[callee.name='PrismaClient']",
+            "message": "Direct PrismaClient instantiation is not allowed. Use the singleton from '../utils/prisma.js' to prevent connection pool exhaustion."
+          },
+          {
+            "selector": "VariableDeclarator[init.type='NewExpression'][init.callee.name='PrismaClient']",
+            "message": "Direct PrismaClient instantiation detected. Replace with: const prisma = require('../utils/prisma');"
+          },
+          {
+            "selector": "IfStatement[test.type='CallExpression'][test.callee.object.name='socketManager'][test.callee.property.name='isInitialized'] VariableDeclarator[init.type='CallExpression'][init.callee.object.name='socketManager'][init.callee.property.name='getIO']",
+            "message": "Verbose socket emission pattern detected. Use socketManager.emit() or socketManager.emitToRoom() helper methods instead."
+          },
+          {
+            "selector": "CallExpression[callee.object.type='CallExpression'][callee.object.callee.object.name='io'][callee.object.callee.property.name='to'][callee.property.name='emit']",
+            "message": "Direct io.to().emit() usage detected. Use socketManager.emitToRoom(room, event, data) instead."
+          },
+          {
+            "selector": "CallExpression[callee.object.name='io'][callee.property.name='emit']",
+            "message": "Direct io.emit() usage detected. Use socketManager.emit(event, data) for global broadcasts."
+          }
+        ]
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "node_modules/",
+    "public/js/lib/",
+    "docs/",
+    "backup/",
+    "database-migration/",
+    "scripts/",
+    "test-results/",
+    "playwright-report/"
+  ]
+}

@@ -1,0 +1,49 @@
+/**
+ * Note 1d Evaluator - VP Risk Group Type 2 System Exemption
+ *
+ * From CAS2 Table 2.2 Note 1d:
+ * "This system is not required where: d) For risk group VP, if there are fewer
+ * than 50 occupants and fewer than 10 vehicles."
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'VP' for this note to apply)
+ * @param {number} [firecell.occupantLoad] - Total occupant load for the firecell
+ * @param {number} [firecell.vehicleCount] - Number of vehicles in the parking area
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.exempt] - Whether the firecell is exempt from Type 2 system (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote1d(firecell) {
+  // Note 1d only applies to VP (Vehicle Parking) risk group
+  if (firecell.riskGroup !== 'VP') {
+    return { applies: false };
+  }
+
+  // Check exemption conditions - both must be met
+  const occupantLimit =
+    typeof firecell.occupantLoad === 'number' &&
+    firecell.occupantLoad >= 0 &&
+    firecell.occupantLoad < 50;
+
+  const vehicleLimit =
+    typeof firecell.vehicleCount === 'number' &&
+    firecell.vehicleCount >= 0 &&
+    firecell.vehicleCount < 10;
+
+  // Determine if firecell is exempt from Type 2 system (both conditions must be met)
+  const exempt = occupantLimit && vehicleLimit;
+
+  // Generate appropriate reason message
+  const reason = exempt
+    ? '<50 occupants and <10 vehicles'
+    : 'Standard requirement - no exemption conditions met';
+
+  return {
+    applies: true,
+    exempt,
+    reason,
+  };
+}
+
+module.exports = evaluateNote1d;

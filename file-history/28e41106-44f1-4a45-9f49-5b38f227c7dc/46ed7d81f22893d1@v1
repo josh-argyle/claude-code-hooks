@@ -1,0 +1,632 @@
+const { getCurrentWeekMonday, addDays, endOfDay } = require('../../public/js/dateUtils');
+const prisma = require('../utils/prisma');
+
+const getUserById = async (id) => {
+  const user = await prisma.users.findUnique({
+    where: { user_id: id },
+    include: {
+      users_contacts: {
+        select: {
+          first_name: true,
+          surname: true
+        }
+      }
+    }
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const { password: _, ...userWithoutPassword } = user;
+  return userWithoutPassword;
+};
+
+/**
+ * Get users by roles with flexible filtering and inclusion options
+ * @param {Array} roleNames - Array of role names to include (empty array with allRoles=true gets all users)
+ * @param {Array} profit_centres - Array of profit centres to filter by (empty array means no profit centre filter)
+ * @param {Object} options - Configuration options
+ * @param {Array} options.excludeRoles - Array of role names to exclude (users with these roles are filtered out)
+ * @param {boolean} options.includeEmail - Include email field in response (default: false)
+ * @param {boolean} options.includeRoleDetails - Return role objects vs role names (default: false)
+ * @param {boolean} options.includeStatus - Add active/inactive status field (default: false)
+ * @param {boolean} options.allRoles - Bypass role filtering entirely (default: false)
+ * @param {boolean} options.singleUser - Return single user vs array (default: false)
+ * @param {string} options.includeCurrentUser - User ID to always include in results regardless of role filtering
+ * @param {boolean} options.onlyActive - Filter to only active users (default: false)
+ * @returns {Promise<Array|Object>} Users matching criteria
+ */
+const getUsersByRoles = async (roleNames, profit_centres = [], options = {}) => {
+  const {
+    excludeRoles = [],
+    includeEmail = false,
+    includeRoleDetails = false,
+    includeStatus = false,
+    allRoles = false,
+    singleUser = false,
+    includeCurrentUser = null,
+    onlyActive = false
+  } = options;
+
+  // Build where clause
+  const whereClause = {};
+
+  // Add is_active filter if requested
+  if (onlyActive) {
+    whereClause.is_active = true;
+  }
+
+  // Role filtering logic
+  if (!allRoles && roleNames.length > 0) {
+    whereClause.users_roles = {
+      some: {
+        role: {
+          role_name: {
+            in: roleNames
+          }
+        }
+      }
+    };
+  }
+
+  // Add exclusion logic if excludeRoles provided
+  if (excludeRoles.length > 0) {
+    if (!whereClause.users_roles) {
+      whereClause.users_roles = {};
+    }
+
+    // If we already have a 'some' condition, we need to restructure
+    if (whereClause.users_roles.some) {
+      whereClause.AND = [
+        {
+          users_roles: whereClause.users_roles
+        },
+        {
+          NOT: {
+            users_roles: {
+              some: {
+                role: {
+                  role_name: {
+                    in: excludeRoles
+                  }
+                }
+              }
+            }
+          }
+        }
+      ];
+      delete whereClause.users_roles;
+    } else {
+      whereClause.NOT = {
+        users_roles: {
+          some: {
+            role: {
+              role_name: {
+                in: excludeRoles
+              }
+            }
+          }
+        }
+      };
+    }
+  }
+
+  // Add profit centre filter if profit_centres array is not empty
+  // Filter by current assignments or default profit centre
+  if (profit_centres.length > 0) {
+    const weekStart = getCurrentWeekMonday();
+    const weekEnd = endOfDay(addDays(weekStart, 6));
+
+    whereClause.OR = [
+      // Users with current week assignments in the specified profit centres
+      {
+        staff_profit_centre_assignments: {
+          some: {
+            assignment_date: {
+              gte: weekStart,
+              lte: weekEnd
+            },
+            assigned_profit_centre: {
+              in: profit_centres
+            }
+          }
+        }
+      },
+      // Users with default profit centre matching (when no current assignment)
+      {
+        AND: [
+          {
+            default_profit_centre: {
+              in: profit_centres
+            }
+          },
+          {
+            NOT: {
+              staff_profit_centre_assignments: {
+                some: {
+                  assignment_date: {
+                    gte: weekStart,
+                    lte: weekEnd
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    ];
+  }
+
+  // Build include clause based on options
+  const includeClause = {
+    users_contacts: {
+      select: {
+        first_name: true,
+        surname: true
+      }
+    },
+    // Always include default profit centre and assignments to calculate current profit centre
+    default_profit_centre_ref: {
+      select: {
+        profit_centre_code: true
+      }
+    },
+    staff_profit_centre_assignments: {
+      where: {
+        assignment_date: {
+          gte: getCurrentWeekMonday(),
+          lte: endOfDay(addDays(getCurrentWeekMonday(), 6))
+        }
+      },
+      select: {
+        assigned_profit_centre: true,
+        assignment_date: true
+      },
+      orderBy: {
+        assignment_date: 'desc'
+      },
+      take: 1
+    }
+  };
+
+  // Add email to contacts selection if requested
+  if (includeEmail) {
+    includeClause.users_contacts.select.email = true;
+  }
+
+  // Add role details if requested
+  if (includeRoleDetails) {
+    includeClause.users_roles = {
+      include: {
+        role: {
+          select: {
+            role_id: true,
+            role_name: true,
+            role_description: true
+          }
+        }
+      }
+    };
+  }
+
+  // Execute query
+  const queryMethod = singleUser ? 'findFirst' : 'findMany';
+  const users = await prisma.users[queryMethod]({
+    where: whereClause,
+    include: includeClause,
+    orderBy: { username: 'asc' }
+  });
+
+  // Handle case where no users found
+  if (!users) {
+    return singleUser ? null : [];
+  }
+
+  // Normalize to array for processing
+  const userArray = singleUser ? [users] : users;
+
+  // Map users with additional fields based on options
+  const mappedUsers = userArray.map(user => {
+    const { password: _, ...userWithoutPassword } = user;
+
+    // Create full_name field for frontend compatibility
+    const fullName = user.users_contacts?.first_name || user.users_contacts?.surname
+      ? `${user.users_contacts.first_name || ''} ${user.users_contacts.surname || ''}`.trim()
+      : '';
+
+    // Calculate current effective profit centre
+    // Priority: Current week assignment > default profit centre
+    const currentProfitCentre = user.staff_profit_centre_assignments?.[0]?.assigned_profit_centre ||
+      user.default_profit_centre;
+
+    const result = {
+      ...userWithoutPassword,
+      full_name: fullName,
+      current_profit_centre: currentProfitCentre
+    };
+
+    // Add email if requested and available
+    if (includeEmail && user.users_contacts?.email) {
+      result.email = user.users_contacts.email;
+    }
+
+    // Add status if requested
+    if (includeStatus) {
+      result.status = user.active ? 'Active' : 'Inactive';
+    }
+
+    // Add role information based on includeRoleDetails option
+    if (includeRoleDetails && user.users_roles) {
+      result.roles = user.users_roles.map(ur => ur.role);
+    } else if (user.users_roles && !includeRoleDetails) {
+      result.roles = user.users_roles.map(ur => ur.role.role_name).join(', ');
+    }
+
+    return result;
+  });
+
+  // Handle includeCurrentUser option
+  let finalUsers = mappedUsers;
+  if (includeCurrentUser && !singleUser) {
+    // Check if current user is already in the results
+    const currentUserExists = finalUsers.some(user => user.user_id === includeCurrentUser);
+
+    if (!currentUserExists) {
+      // Fetch current user with same include options
+      const currentUser = await prisma.users.findUnique({
+        where: { user_id: includeCurrentUser },
+        include: includeClause
+      });
+
+      if (currentUser) {
+        // Apply same mapping logic as above
+        const { password: _, ...userWithoutPassword } = currentUser;
+
+        const fullName = currentUser.users_contacts?.first_name || currentUser.users_contacts?.surname
+          ? `${currentUser.users_contacts.first_name || ''} ${currentUser.users_contacts.surname || ''}`.trim()
+          : '';
+
+        // Calculate current effective profit centre
+        const currentProfitCentre = currentUser.staff_profit_centre_assignments?.[0]?.assigned_profit_centre ||
+          currentUser.default_profit_centre;
+
+        const result = {
+          ...userWithoutPassword,
+          full_name: fullName,
+          current_profit_centre: currentProfitCentre
+        };
+
+        if (includeEmail && currentUser.users_contacts?.email) {
+          result.email = currentUser.users_contacts.email;
+        }
+
+        if (includeStatus) {
+          result.status = currentUser.active ? 'Active' : 'Inactive';
+        }
+
+        if (includeRoleDetails && currentUser.users_roles) {
+          result.roles = currentUser.users_roles.map(ur => ur.role);
+        } else if (currentUser.users_roles && !includeRoleDetails) {
+          result.roles = currentUser.users_roles.map(ur => ur.role.role_name).join(', ');
+        }
+
+        // Add current user to the beginning of the array
+        finalUsers = [result, ...finalUsers];
+      }
+    }
+  }
+
+  // Return single user or array based on singleUser option
+  return singleUser ? mappedUsers[0] : finalUsers;
+};
+
+const getUserByIdFull = async (userId) => {
+  const user = await prisma.users.findUnique({
+    where: { user_id: userId },
+    include: {
+      users_contacts: true,
+      users_roles: {
+        include: {
+          role: {
+            select: {
+              role_id: true,
+              role_name: true,
+              role_description: true
+            }
+          }
+        }
+      },
+      users_preferences: {
+        include: {
+          preference_type: true
+        }
+      },
+      workbench_data_user_purchase_order_limits: {
+        include: {
+          set_by_user: {
+            select: {
+              username: true,
+              users_contacts: {
+                select: {
+                  first_name: true,
+                  surname: true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const { password: _, ...userWithoutPassword } = user;
+  return userWithoutPassword;
+};
+
+const updateUser = async (userId, userData) => {
+  const { password: _, ...updateData } = userData;
+  return await prisma.users.update({
+    where: { user_id: userId },
+    data: {
+      ...updateData,
+      updated_at: new Date()
+    }
+  });
+};
+
+const updateUserContacts = async (userId, contactData) => {
+  // Ensure required fields have default values if not provided
+  const sanitizedData = {
+    ...contactData,
+    // Surname is required in the database, provide empty string if not provided
+    surname: contactData.surname || '',
+    // First name is also required, provide empty string if not provided
+    first_name: contactData.first_name || ''
+  };
+
+  return await prisma.users_contacts.upsert({
+    where: { user_id: userId },
+    update: {
+      ...sanitizedData,
+      updated_at: new Date()
+    },
+    create: {
+      user_id: userId,
+      ...sanitizedData
+    }
+  });
+};
+
+const updateUserRoles = async (userId, roleIds, assignedBy) => {
+  // Remove existing roles
+  await prisma.users_roles.deleteMany({
+    where: { user_id: userId }
+  });
+
+  // Add new roles
+  if (roleIds && roleIds.length > 0) {
+    const roleAssignments = roleIds.map(roleId => ({
+      user_id: userId,
+      role_id: roleId,
+      assigned_by: assignedBy,
+      assigned_at: new Date()
+    }));
+
+    await prisma.users_roles.createMany({
+      data: roleAssignments
+    });
+  }
+
+  return await getUserByIdFull(userId);
+};
+
+const updateUserPreferences = async (userId, preferences) => {
+  for (const [preferenceName, preferenceValue] of Object.entries(preferences)) {
+    await prisma.users_preferences.upsert({
+      where: {
+        user_id_preference_name: {
+          user_id: userId,
+          preference_name: preferenceName
+        }
+      },
+      update: {
+        preference_value: preferenceValue
+      },
+      create: {
+        user_id: userId,
+        preference_name: preferenceName,
+        preference_value: preferenceValue
+      }
+    });
+  }
+
+  return await getUserByIdFull(userId);
+};
+
+const updateWorkbenchMapping = async (userId, workbenchUserId, _isActive = true) => {
+  return await prisma.users.update({
+    where: { user_id: userId },
+    data: {
+      workbench_user_id: workbenchUserId,
+      updated_at: new Date()
+    }
+  });
+};
+
+const updateUserPassword = async (userId, hashedPassword) => {
+  return await prisma.users.update({
+    where: { user_id: userId },
+    data: {
+      password: hashedPassword,
+      updated_at: new Date()
+    },
+    select: {
+      user_id: true,
+      username: true,
+      updated_at: true
+    }
+  });
+};
+
+const createUser = async (userData, contactData, roleIds, assignedBy) => {
+  const { password, ...userFields } = userData;
+
+  // Create user with transaction to ensure consistency
+  const result = await prisma.$transaction(async (prisma) => {
+    // Create main user record
+    const newUser = await prisma.users.create({
+      data: {
+        ...userFields,
+        password // This should be hashed before calling this function
+      }
+    });
+
+    // Create user contacts if provided
+    if (contactData) {
+      await prisma.users_contacts.create({
+        data: {
+          user_id: newUser.user_id,
+          ...contactData
+        }
+      });
+    }
+
+    // Assign roles if provided
+    if (roleIds && roleIds.length > 0) {
+      const roleAssignments = roleIds.map(roleId => ({
+        user_id: newUser.user_id,
+        role_id: roleId,
+        assigned_by: assignedBy,
+        assigned_at: new Date()
+      }));
+
+      await prisma.users_roles.createMany({
+        data: roleAssignments
+      });
+    }
+
+    return newUser;
+  });
+
+  return await getUserByIdFull(result.user_id);
+};
+
+const deactivateUser = async (userId) => {
+  return await prisma.users.update({
+    where: { user_id: userId },
+    data: {
+      is_active: false,
+      updated_at: new Date()
+    }
+  });
+};
+
+const getAllRoles = async () => {
+  return await prisma.config_roles.findMany({
+    where: { is_active: true },
+    orderBy: { role_name: 'asc' }
+  });
+};
+
+const getAllProfitCentres = async () => {
+  return await prisma.config_profit_centres.findMany({
+    where: { is_active: true },
+    select: {
+      profit_centre_code: true,
+      display_name: true,
+      locale: true
+    },
+    orderBy: { profit_centre_code: 'asc' }
+  });
+};
+
+const getUserPurchaseOrderLimit = async (userId) => {
+  // First get the user's workbench_user_id
+  const user = await prisma.users.findUnique({
+    where: { user_id: userId },
+    select: { workbench_user_id: true }
+  });
+
+  if (!user || !user.workbench_user_id) {
+    return null;
+  }
+
+  return await prisma.workbench_data_user_purchase_order_limits.findUnique({
+    where: { workbench_user_id: user.workbench_user_id },
+    include: {
+      set_by_user: {
+        select: {
+          username: true,
+          users_contacts: {
+            select: {
+              first_name: true,
+              surname: true
+            }
+          }
+        }
+      }
+    }
+  });
+};
+
+const updateUserPurchaseOrderLimit = async (userId, limitAmount, setByUserId) => {
+  // First get the user's workbench_user_id
+  const user = await prisma.users.findUnique({
+    where: { user_id: userId },
+    select: { workbench_user_id: true }
+  });
+
+  if (!user || !user.workbench_user_id) {
+    throw new Error('User does not have a workbench user ID');
+  }
+
+  return await prisma.workbench_data_user_purchase_order_limits.upsert({
+    where: { workbench_user_id: user.workbench_user_id },
+    update: {
+      limit_amount: limitAmount,
+      set_by_user_id: setByUserId,
+      updated_at: new Date()
+    },
+    create: {
+      workbench_user_id: user.workbench_user_id,
+      limit_amount: limitAmount,
+      set_by_user_id: setByUserId
+    },
+    include: {
+      set_by_user: {
+        select: {
+          username: true,
+          users_contacts: {
+            select: {
+              first_name: true,
+              surname: true
+            }
+          }
+        }
+      }
+    }
+  });
+};
+
+module.exports = {
+  getUserById,
+  getUsersByRoles,
+  getUserByIdFull,
+  updateUser,
+  updateUserContacts,
+  updateUserRoles,
+  updateUserPreferences,
+  updateWorkbenchMapping,
+  updateUserPassword,
+  createUser,
+  deactivateUser,
+  getAllRoles,
+  getAllProfitCentres,
+  getUserPurchaseOrderLimit,
+  updateUserPurchaseOrderLimit
+};

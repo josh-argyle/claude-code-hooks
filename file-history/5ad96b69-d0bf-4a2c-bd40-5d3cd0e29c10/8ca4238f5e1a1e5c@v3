@@ -1,0 +1,74 @@
+/**
+ * Note 1c Evaluator - WB Risk Group Type 2 System Exemption
+ *
+ * From CAS2 Table 2.2 Note 1c:
+ * "This system is not required where: c) For risk group WB, if the building is
+ * single level, the storage height is less than 3.0 m, and the number of people
+ * on escape routes does not exceed 50."
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'WB' for this note to apply)
+ * @param {string|number} [firecell.floor] - Floor location for single-level checking
+ * @param {number} [firecell.maxStorageHeight] - Maximum storage height in meters
+ * @param {number} [firecell.maxEscapeRouteOccupants] - Maximum occupants served by largest escape route
+ * @param {Object} [buildingParams] - Building-level parameters (not used for this note)
+ * @param {Array<Object>} [allFirecells=[]] - All firecells in the building for cross-firecell analysis
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.exempt] - Whether the firecell is exempt from Type 2 system (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote1c(firecell, buildingParams, allFirecells = []) {
+  // Note 1c only applies to WB (Warehouse/Storage) risk group
+  if (firecell.riskGroup !== 'WB') {
+    return { applies: false };
+  }
+
+  // Check if all WB firecells are on the same floor (single level requirement)
+  const allWBFirecells = allFirecells.filter(f => f.riskGroup === 'WB');
+
+  // Check if current firecell has valid floor data first
+  const currentFirecellHasValidFloor =
+    firecell.floor !== undefined && firecell.floor !== null && firecell.floor !== '';
+
+  // Get valid floor data - if any WB firecell has missing floor info, treat as multi-level
+  const wbFloors = allWBFirecells
+    .map(f => f.floor)
+    .filter(floor => floor !== undefined && floor !== null && floor !== '');
+  const hasValidFloorData = wbFloors.length === allWBFirecells.length;
+  const uniqueFloors = [...new Set(wbFloors)];
+
+  const isSingleLevel =
+    currentFirecellHasValidFloor &&
+    hasValidFloorData &&
+    uniqueFloors.length <= 1 &&
+    allWBFirecells.length > 0;
+
+  // Check storage height condition - must be less than 3.0m
+  const lowStorage =
+    typeof firecell.maxStorageHeight === 'number' &&
+    firecell.maxStorageHeight >= 0 &&
+    firecell.maxStorageHeight < 3.0;
+
+  // Check escape route occupant limit for this specific firecell
+  const escapeRouteLimit =
+    typeof firecell.maxEscapeRouteOccupants === 'number' &&
+    firecell.maxEscapeRouteOccupants >= 0 &&
+    firecell.maxEscapeRouteOccupants <= 50;
+
+  // Determine if firecell is exempt from Type 2 system (all conditions must be met)
+  const exempt = isSingleLevel && lowStorage && escapeRouteLimit;
+
+  // Generate appropriate reason message
+  const reason = exempt
+    ? 'WB areas on single level, storage <3.0m, ≤50 escape route occupants'
+    : 'Type 2 required';
+
+  return {
+    applies: true,
+    exempt,
+    reason,
+  };
+}
+
+module.exports = evaluateNote1c;

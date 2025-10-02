@@ -1,0 +1,214 @@
+const { evaluatePara2_2_3 } = require('../../../../api/processors/fire-safety-systems/note-evaluators/para-2.2.3-evaluator');
+const { parseSystemCode } = require('../../../../api/data/services/fire-safety-systems-service');
+
+describe('Para 2.2.3 Evaluator - NZS 4515 Substitution', () => {
+
+  describe('Eligibility Checks', () => {
+    test('SM education + ≤2000m² should be eligible', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 10,
+        floorArea: 1000,
+        fireSafetySystems: ['7', '9', '18^2']
+      };
+
+      const allFirecells = [firecell];
+      const result = evaluatePara2_2_3(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.eligible).toBe(true);
+      expect(result.substitutionAllowed).toBe(true);
+      expect(result.totalFloorArea).toBe(1000);
+      expect(result.withinNZS4515Scope).toBe(true);
+    });
+
+    test('SM education + >2000m² should NOT be eligible', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 10,
+        floorArea: 2500,
+        fireSafetySystems: ['7', '9', '18^2']
+      };
+
+      const allFirecells = [firecell];
+      const result = evaluatePara2_2_3(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.eligible).toBe(false);
+      expect(result.totalFloorArea).toBe(2500);
+      expect(result.withinNZS4515Scope).toBe(false);
+    });
+
+    test('SI careOrDetention + ≤2000m² should be eligible', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        sleepingOccupantType: 'careOrDetention',
+        escapeHeight: 8,
+        floorArea: 1500,
+        fireSafetySystems: ['7^3', '9', '18^2']
+      };
+
+      const allFirecells = [firecell];
+      const result = evaluatePara2_2_3(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.eligible).toBe(true);
+      expect(result.substitutionAllowed).toBe(true);
+    });
+
+    test('SM permanent should NOT be eligible (wrong occupant type)', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'permanent',
+        escapeHeight: 10,
+        floorArea: 1000,
+        fireSafetySystems: ['5', '15', '18^2']
+      };
+
+      const allFirecells = [firecell];
+      const result = evaluatePara2_2_3(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(false);
+      expect(result.eligible).toBe(false);
+    });
+
+    test('CA should NOT be eligible (wrong risk group)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        occupantLoad: 100,
+        escapeHeight: 5,
+        floorArea: 500,
+        fireSafetySystems: ['4^5', '9', '18^2']
+      };
+
+      const allFirecells = [firecell];
+      const result = evaluatePara2_2_3(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(false);
+    });
+  });
+
+  describe('Multi-Firecell Total Area Calculation', () => {
+    test('should sum floor areas across multiple firecells', () => {
+      const firecell1 = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 10,
+        floorArea: 800,
+        fireSafetySystems: ['7', '9', '18^2']
+      };
+
+      const firecell2 = {
+        riskGroup: 'CA',
+        occupantLoad: 50,
+        escapeHeight: 5,
+        floorArea: 600
+      };
+
+      const firecell3 = {
+        riskGroup: 'WB',
+        occupantLoad: 30,
+        escapeHeight: 3,
+        floorArea: 400
+      };
+
+      const allFirecells = [firecell1, firecell2, firecell3];
+      const result = evaluatePara2_2_3(firecell1, {}, allFirecells);
+
+      expect(result.totalFloorArea).toBe(1800); // 800 + 600 + 400
+      expect(result.withinNZS4515Scope).toBe(true);
+    });
+
+    test('boundary: exactly 2000m² across multiple firecells', () => {
+      const firecells = [
+        { riskGroup: 'SM', sleepingOccupantType: 'education', floorArea: 1000, fireSafetySystems: ['7'] },
+        { riskGroup: 'CA', floorArea: 600 },
+        { riskGroup: 'WB', floorArea: 400 }
+      ];
+
+      const result = evaluatePara2_2_3(firecells[0], {}, firecells);
+
+      expect(result.totalFloorArea).toBe(2000);
+      expect(result.withinNZS4515Scope).toBe(true); // Boundary inclusive
+    });
+
+    test('should exceed scope at 2001m²', () => {
+      const firecells = [
+        { riskGroup: 'SM', sleepingOccupantType: 'education', floorArea: 1001, fireSafetySystems: ['7'] },
+        { riskGroup: 'CA', floorArea: 600 },
+        { riskGroup: 'WB', floorArea: 400 }
+      ];
+
+      const result = evaluatePara2_2_3(firecells[0], {}, firecells);
+
+      expect(result.totalFloorArea).toBe(2001);
+      expect(result.withinNZS4515Scope).toBe(false);
+    });
+  });
+
+  describe('User Selection Tracking', () => {
+    test('should track user selected NZS 4515 substitution', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 10,
+        floorArea: 1000,
+        fireSafetySystems: ['7', '9', '18^2'],
+        usesNZS4515Sprinklers: true // User selected
+      };
+
+      const result = evaluatePara2_2_3(firecell, {}, [firecell]);
+
+      expect(result.userSelectedSubstitution).toBe(true);
+    });
+
+    test('should track user did NOT select NZS 4515', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 10,
+        floorArea: 1000,
+        fireSafetySystems: ['7', '9', '18^2'],
+        usesNZS4515Sprinklers: false // User declined
+      };
+
+      const result = evaluatePara2_2_3(firecell, {}, [firecell]);
+
+      expect(result.userSelectedSubstitution).toBe(false);
+    });
+  });
+
+  describe('Type 7 Requirement Check', () => {
+    test('should only be eligible if Type 7 is required', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 2,
+        floorArea: 1000,
+        fireSafetySystems: ['7', '9', '18^2'] // Type 7 IS in the list
+      };
+
+      const result = evaluatePara2_2_3(firecell, {}, [firecell]);
+
+      expect(result.applies).toBe(true);
+      expect(result.eligible).toBe(true); // Type 7 present
+    });
+
+    test('should NOT be eligible if Type 7 not required', () => {
+      const firecell = {
+        riskGroup: 'SM',
+        sleepingOccupantType: 'education',
+        escapeHeight: 2,
+        floorArea: 1000,
+        fireSafetySystems: ['2', '18^2'] // NO Type 7
+      };
+
+      const result = evaluatePara2_2_3(firecell, {}, [firecell]);
+
+      expect(result.applies).toBe(true);
+      expect(result.eligible).toBe(false); // No Type 7 to substitute
+    });
+  });
+});

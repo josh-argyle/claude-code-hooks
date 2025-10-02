@@ -1,0 +1,391 @@
+const evaluateNote1d = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-1d-evaluator');
+
+describe('Note 1d Evaluator - VP Risk Group Type 2 System Exemption', () => {
+  describe('Applicability', () => {
+    test('should not apply to SM risk group', () => {
+      const firecell = { riskGroup: 'SM' };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(false);
+      expect(result.exempt).toBeUndefined();
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('should not apply to SI risk group', () => {
+      const firecell = { riskGroup: 'SI' };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to CA risk group', () => {
+      const firecell = { riskGroup: 'CA' };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WB risk group', () => {
+      const firecell = { riskGroup: 'WB' };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WS risk group', () => {
+      const firecell = { riskGroup: 'WS' };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should apply to VP risk group', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBeDefined();
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('Occupant Load Condition', () => {
+    test('should exempt when occupant load is less than 50', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt when occupant load is exactly 50', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 50,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+      expect(result.reason).toBe('Standard requirement - no exemption conditions met');
+    });
+
+    test('should NOT exempt when occupant load exceeds 50', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 51,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle 0 occupants as valid and within limit', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 0,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should handle negative occupant load as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: -10,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle missing occupant load as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle non-numeric occupant load as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 'thirty',
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Vehicle Count Condition', () => {
+    test('should exempt when vehicle count is less than 10', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt when vehicle count is exactly 10', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 10
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when vehicle count exceeds 10', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 15
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle 0 vehicles as valid and within limit', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 0
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should handle negative vehicle count as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: -5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle missing vehicle count as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle non-numeric vehicle count as invalid', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 'five'
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Combined Conditions - Both Must Be Met', () => {
+    test('should exempt when both <50 occupants AND <10 vehicles', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 8
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+      expect(result.reason).toBe('<50 occupants and <10 vehicles');
+    });
+
+    test('should NOT exempt when <50 occupants BUT >=10 vehicles', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 10
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when >=50 occupants BUT <10 vehicles', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 50,
+        vehicleCount: 8
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when >=50 occupants AND >=10 vehicles', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 60,
+        vehicleCount: 15
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should exempt with minimal values (1 occupant, 1 vehicle)', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 1,
+        vehicleCount: 1
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should exempt at boundary (49 occupants, 9 vehicles)', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 49,
+        vehicleCount: 9
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt just over boundary (50 occupants, 9 vehicles)', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 50,
+        vehicleCount: 9
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt just over boundary (49 occupants, 10 vehicles)', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 49,
+        vehicleCount: 10
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle both values at 0 as exempt', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 0,
+        vehicleCount: 0
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should handle null occupantLoad', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: null,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle null vehicleCount', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: null
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle undefined occupantLoad', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle undefined vehicleCount', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle both values missing', () => {
+      const firecell = {
+        riskGroup: 'VP'
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when exempt', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        vehicleCount: 5
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.reason).toBe('<50 occupants and <10 vehicles');
+    });
+
+    test('should provide clear reason when not exempt', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        occupantLoad: 60,
+        vehicleCount: 15
+      };
+      const result = evaluateNote1d(firecell);
+
+      expect(result.reason).toBe('Standard requirement - no exemption conditions met');
+    });
+  });
+});

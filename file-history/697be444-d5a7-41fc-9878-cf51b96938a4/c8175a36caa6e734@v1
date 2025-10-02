@@ -1,0 +1,396 @@
+const ProjectModel = require('../../api/models/project-model');
+
+describe('ProjectModel Integration Tests', () => {
+  let projectModel;
+
+  beforeEach(() => {
+    projectModel = new ProjectModel();
+  });
+
+  const testFirecells = [
+    // 1. SM - Hotel with 200 occupants, 15m height, sprinklered
+    {
+      riskGroup: 'SM',
+      occupantType: 'Office spaces',
+      occupantLoad: 200,
+      escapeHeight: 15,
+      isSprinklered: true,
+      floorArea: 1200,
+      floor: 'G'
+    },
+    // 2. SM - Small motel, 50 occupants, 5m height, unsprinklered
+    {
+      riskGroup: 'SM',
+      occupantType: 'Consulting rooms (doctors, dentists, beauty therapy)',
+      occupantLoad: 50,
+      escapeHeight: 5,
+      isSprinklered: false,
+      floorArea: 300,
+      floor: 'G'
+    },
+    // 3. SI - Hospital ward, 30 occupants, 10m height, sprinklered
+    {
+      riskGroup: 'SI',
+      occupantType: 'Care and detention',
+      occupantLoad: 30,
+      escapeHeight: 10,
+      isSprinklered: true,
+      floorArea: 400,
+      floor: 'G'
+    },
+    // 4. SI - Care facility, 20 occupants, 3m height, unsprinklered
+    {
+      riskGroup: 'SI',
+      occupantType: 'Care and detention',
+      occupantLoad: 20,
+      escapeHeight: 3,
+      isSprinklered: false,
+      floorArea: 250,
+      floor: 'G'
+    },
+    // 5. CA - Cinema, 300 occupants, 12m height, sprinklered
+    {
+      riskGroup: 'CA',
+      occupantType: 'Space with fixed seating',
+      occupantLoad: 300,
+      escapeHeight: 12,
+      isSprinklered: true,
+      floorArea: 2000,
+      floor: 'G'
+    },
+    // 6. CA - Restaurant, 100 occupants, 4m height, unsprinklered
+    {
+      riskGroup: 'CA',
+      occupantType: 'Dining, restaurant and cafeteria spaces',
+      occupantLoad: 100,
+      escapeHeight: 4,
+      isSprinklered: false,
+      floorArea: 800,
+      floor: 'G'
+    },
+    // 7. CA - Gaming area, 150 occupants, 8m height, sprinklered
+    {
+      riskGroup: 'CA',
+      occupantType: 'Gaming, casino areas',
+      occupantLoad: 150,
+      escapeHeight: 8,
+      isSprinklered: true,
+      floorArea: 1000,
+      floor: 'G'
+    },
+    // 8. WB - Office building, 500 occupants, 25m height, sprinklered
+    {
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 500,
+      escapeHeight: 25,
+      isSprinklered: true,
+      floorArea: 5000,
+      floor: 'G'
+    },
+    // 9. WB - Small office, 25 occupants, 3m height, unsprinklered
+    {
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 25,
+      escapeHeight: 3,
+      isSprinklered: false,
+      floorArea: 200,
+      floor: 'G'
+    },
+    // 10. WB - Call centre, 200 occupants, 10m height, sprinklered
+    {
+      riskGroup: 'WB',
+      occupantType: 'Call centres',
+      occupantLoad: 200,
+      escapeHeight: 10,
+      isSprinklered: true,
+      floorArea: 1500,
+      floor: 'G'
+    },
+    // 11. WS - Large warehouse, 50 occupants, 20m height, sprinklered
+    {
+      riskGroup: 'WS',
+      occupantType: 'Bulk storage including racks and shelves',
+      occupantLoad: 50,
+      escapeHeight: 20,
+      isSprinklered: true,
+      floorArea: 8000,
+      floor: 'G'
+    },
+    // 12. WS - Small storage, 10 occupants, 5m height, unsprinklered
+    {
+      riskGroup: 'WS',
+      occupantType: 'Bulk storage including racks and shelves',
+      occupantLoad: 10,
+      escapeHeight: 5,
+      isSprinklered: false,
+      floorArea: 1200,
+      floor: 'G'
+    },
+    // 13. WS - Bulk retail, 100 occupants, 8m height, sprinklered
+    {
+      riskGroup: 'WS',
+      occupantType: 'Bulk retail (trading stores, supermarkets etc)',
+      occupantLoad: 100,
+      escapeHeight: 8,
+      isSprinklered: true,
+      floorArea: 3000,
+      floor: 'G'
+    },
+    // 14. VP - Parking garage, 5 occupants, 6m height, unsprinklered
+    {
+      riskGroup: 'VP',
+      occupantType: 'Parking buildings, garages',
+      occupantLoad: 5,
+      escapeHeight: 6,
+      isSprinklered: false,
+      floorArea: 2000,
+      floor: 'G'
+    },
+    // 15. VP - Multi-level parking, 2 occupants, 15m height, sprinklered
+    {
+      riskGroup: 'VP',
+      occupantType: 'Parking buildings, garages',
+      occupantLoad: 2,
+      escapeHeight: 15,
+      isSprinklered: true,
+      floorArea: 5000,
+      floor: 'G'
+    },
+    // 16. Edge case - Maximum occupants, tall building, CA, sprinklered
+    {
+      riskGroup: 'CA',
+      occupantType: 'Exhibition areas, trade fairs',
+      occupantLoad: 1000,
+      escapeHeight: 50,
+      isSprinklered: true,
+      floorArea: 10000,
+      floor: 'G'
+    },
+    // 17. Edge case - Minimum values, WB, unsprinklered
+    {
+      riskGroup: 'WB',
+      occupantType: 'Interview rooms',
+      occupantLoad: 1,
+      escapeHeight: 2.5,
+      isSprinklered: false,
+      floorArea: 20,
+      floor: 'G'
+    },
+    // 18. Mixed use - Classroom, 60 occupants, 4m height, unsprinklered
+    {
+      riskGroup: 'CA',
+      occupantType: 'Classrooms',
+      occupantLoad: 60,
+      escapeHeight: 4,
+      isSprinklered: false,
+      floorArea: 400,
+      floor: 'G'
+    },
+    // 19. Industrial - Heavy industry, 30 occupants, 12m height, sprinklered
+    {
+      riskGroup: 'WS',
+      occupantType: 'Heavy industry',
+      occupantLoad: 30,
+      escapeHeight: 12,
+      isSprinklered: true,
+      floorArea: 6000,
+      floor: 'G'
+    },
+    // 20. Special - Computer server room, 5 occupants, 3.5m height, sprinklered
+    {
+      riskGroup: 'WB',
+      occupantType: 'Computer server rooms',
+      occupantLoad: 5,
+      escapeHeight: 3.5,
+      isSprinklered: true,
+      floorArea: 150,
+      floor: 'G'
+    }
+  ];
+
+  describe('Bulk Firecell Operations', () => {
+    test('should successfully create all 20 test firecells', () => {
+      testFirecells.forEach((firecellData, index) => {
+        const firecellIndex = projectModel.addFirecell(firecellData);
+        expect(firecellIndex).toBe(index);
+      });
+
+      expect(projectModel.getFirecellCount()).toBe(20);
+    });
+
+    test('should correctly store and retrieve all firecell data', () => {
+      // Add all firecells
+      testFirecells.forEach(firecellData => {
+        projectModel.addFirecell(firecellData);
+      });
+
+      // Verify each one
+      testFirecells.forEach((expectedData, index) => {
+        const retrievedData = projectModel.getFirecell(index);
+        expect(retrievedData).toEqual({
+          ...expectedData,
+          compliance: {}
+        });
+      });
+    });
+
+    test('should handle mixed operations on all firecells', () => {
+      // Add all firecells
+      testFirecells.forEach(firecellData => {
+        projectModel.addFirecell(firecellData);
+      });
+
+      // Update every 3rd firecell
+      for (let i = 2; i < 20; i += 3) {
+        const updates = { occupantLoad: testFirecells[i].occupantLoad + 10 };
+        const updated = projectModel.updateFirecell(i, updates);
+        expect(updated.occupantLoad).toBe(testFirecells[i].occupantLoad + 10);
+      }
+
+      // Remove every 5th firecell (from the end to maintain indices)
+      const toRemove = [19, 14, 9, 4];
+      toRemove.forEach(index => {
+        const removed = projectModel.removeFirecell(index);
+        expect(removed).toBeDefined();
+      });
+
+      expect(projectModel.getFirecellCount()).toBe(16);
+    });
+  });
+
+  describe('Risk Group Coverage', () => {
+    beforeEach(() => {
+      testFirecells.forEach(firecellData => {
+        projectModel.addFirecell(firecellData);
+      });
+    });
+
+    test('should cover all risk groups', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const riskGroups = [...new Set(allFirecells.map(f => f.riskGroup))];
+
+      expect(riskGroups).toEqual(expect.arrayContaining(['SM', 'SI', 'CA', 'WB', 'WS', 'VP']));
+      expect(riskGroups.length).toBe(6);
+    });
+
+    test('should have appropriate distribution of risk groups', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const distribution = allFirecells.reduce((acc, firecell) => {
+        acc[firecell.riskGroup] = (acc[firecell.riskGroup] || 0) + 1;
+        return acc;
+      }, {});
+
+      // Verify we have multiple examples of each risk group
+      expect(distribution.SM).toBeGreaterThanOrEqual(2);
+      expect(distribution.SI).toBeGreaterThanOrEqual(2);
+      expect(distribution.CA).toBeGreaterThanOrEqual(3);
+      expect(distribution.WB).toBeGreaterThanOrEqual(3);
+      expect(distribution.WS).toBeGreaterThanOrEqual(3);
+      expect(distribution.VP).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('Configuration Diversity', () => {
+    beforeEach(() => {
+      testFirecells.forEach(firecellData => {
+        projectModel.addFirecell(firecellData);
+      });
+    });
+
+    test('should include both sprinklered and unsprinklered firecells', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const sprinklered = allFirecells.filter(f => f.isSprinklered).length;
+      const unsprinklered = allFirecells.filter(f => !f.isSprinklered).length;
+
+      expect(sprinklered).toBeGreaterThan(0);
+      expect(unsprinklered).toBeGreaterThan(0);
+      expect(sprinklered + unsprinklered).toBe(20);
+    });
+
+    test('should cover a wide range of occupant loads', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const occupantLoads = allFirecells.map(f => f.occupantLoad);
+
+      const min = Math.min(...occupantLoads);
+      const max = Math.max(...occupantLoads);
+
+      expect(min).toBe(1); // Minimum edge case
+      expect(max).toBe(1000); // Maximum edge case
+      expect(max - min).toBeGreaterThan(900); // Wide range coverage
+    });
+
+    test('should cover a range of escape heights', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const escapeHeights = allFirecells.map(f => f.escapeHeight);
+
+      const min = Math.min(...escapeHeights);
+      const max = Math.max(...escapeHeights);
+
+      expect(min).toBe(2.5); // Low building
+      expect(max).toBe(50); // Tall building
+      expect(max - min).toBeGreaterThan(40); // Wide range coverage
+    });
+
+    test('should include diverse occupant types', () => {
+      const allFirecells = projectModel.getAllFirecells();
+      const occupantTypes = [...new Set(allFirecells.map(f => f.occupantType))];
+
+      // Should have at least 15 different occupant types
+      expect(occupantTypes.length).toBeGreaterThanOrEqual(15);
+
+      // Verify some key categories are included
+      expect(occupantTypes).toEqual(expect.arrayContaining([
+        'Office spaces',
+        'Bulk storage including racks and shelves',
+        'Gaming, casino areas',
+        'Care and detention',
+        'Parking buildings, garages'
+      ]));
+    });
+  });
+
+  describe('Data Integrity', () => {
+    test('should maintain data consistency during complex operations', () => {
+      // Add all firecells
+      testFirecells.forEach(firecellData => {
+        projectModel.addFirecell(firecellData);
+      });
+
+      // Perform multiple operations
+      const snapshot1 = projectModel.getAllFirecells();
+
+      // Update some firecells
+      projectModel.updateFirecell(0, { occupantLoad: 999 });
+      projectModel.updateFirecell(5, { escapeHeight: 30 });
+
+      // Remove and re-add a firecell
+      const removed = projectModel.removeFirecell(10);
+      const newIndex = projectModel.addFirecell(removed);
+
+      // Verify integrity
+      expect(projectModel.getFirecellCount()).toBe(20);
+      expect(projectModel.getFirecell(0).occupantLoad).toBe(999);
+      expect(projectModel.getFirecell(5).escapeHeight).toBe(30);
+      expect(projectModel.getFirecell(newIndex)).toEqual(removed);
+    });
+
+    test('should handle edge cases properly', () => {
+      // Test edge case firecells (indices 15 and 16)
+      const edgeCase1 = testFirecells[15]; // Max values
+      const edgeCase2 = testFirecells[16]; // Min values
+
+      const index1 = projectModel.addFirecell(edgeCase1);
+      const index2 = projectModel.addFirecell(edgeCase2);
+
+      const retrieved1 = projectModel.getFirecell(index1);
+      const retrieved2 = projectModel.getFirecell(index2);
+
+      expect(retrieved1.occupantLoad).toBe(1000);
+      expect(retrieved1.escapeHeight).toBe(50);
+      expect(retrieved2.occupantLoad).toBe(1);
+      expect(retrieved2.escapeHeight).toBe(2.5);
+    });
+  });
+});

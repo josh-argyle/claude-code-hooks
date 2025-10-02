@@ -1,0 +1,88 @@
+const ProjectModel = require('../api/models/project-model');
+const { processPipeline } = require('../api/pipeline');
+
+// Create a new project model
+const project = new ProjectModel();
+
+// Set project-level properties for various processors
+project.storesHazardousGoods = false; // For hazardous-substances processor
+project.confirmedNoComplexFeatures = true; // C/AS2 scope confirmation
+project.isSprinklered = false; // For fire-resistance processor
+project.escapeHeight = 12; // For fire-resistance processor (>10m triggers Note 1 - exitway requirements)
+project.primaryRiskGroup = 'CA'; // For fire-resistance processor
+
+// Set building vertical structure for multi-level test scenario
+project.numberOfFloorsAboveGround = 1; // 2-storey building (ground + 1st floor)
+project.numberOfBasementLevels = 0;
+
+// Add a test firecell - ground floor CA office space
+project.addFirecell({
+  riskGroup: 'CA',
+  occupantType: 'Office spaces',
+  occupantLoad: 50,
+  escapeHeight: 0,
+  isSprinklered: false,
+  floorArea: 400,
+  floor: 'G',
+  isCinemaOrTheatre: false
+});
+
+// Add a second test firecell - upstairs SM residential
+project.addFirecell({
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 10, // bed spaces (not calculated from floor area per CAS2 1.4.5)
+  escapeHeight: 4,
+  isSprinklered: false,
+  floorArea: 200,
+  floor: '1'
+});
+
+// Helper function to truncate long strings in JSON output
+function truncateStrings(obj, maxLength = 40) {
+  if (typeof obj === 'string') {
+    return obj.length > maxLength ? obj.substring(0, maxLength) + '...' : obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => truncateStrings(item, maxLength));
+  }
+  if (obj && typeof obj === 'object') {
+    const truncated = {};
+    for (const [key, value] of Object.entries(obj)) {
+      truncated[key] = truncateStrings(value, maxLength);
+    }
+    return truncated;
+  }
+  return obj;
+}
+
+console.log('BEFORE PIPELINE:');
+console.log(JSON.stringify(truncateStrings(project), null, 2));
+
+// Process through pipeline
+console.log('\nPROCESSING THROUGH PIPELINE...');
+console.log('- hazardous-substances processor');
+console.log('- fire-safety-systems processor');
+console.log('- occupant-load processor');
+console.log('- firecells processor');
+console.log('- fire-resistance processor');
+
+const processedProject = processPipeline(project);
+
+console.log('\nAFTER PIPELINE:');
+console.log(JSON.stringify(truncateStrings(processedProject), null, 2));
+
+// Highlight fire-resistance specific output
+console.log('\n=== FIRE RESISTANCE CALCULATIONS ===');
+if (processedProject.fireResistanceCalculations) {
+  console.log('Life Safety Rating:', processedProject.fireResistanceCalculations.life, 'minutes');
+  console.log('Property Protection Rating:', processedProject.fireResistanceCalculations.property, 'minutes');
+  if (processedProject.fireResistanceCalculations.exitwayFRR) {
+    console.log('Exitway Rating:', processedProject.fireResistanceCalculations.exitwayFRR, 'minutes (due to escape height > 10m)');
+  }
+  if (processedProject.fireResistanceCalculations.applicableNotes?.length > 0) {
+    console.log('Applicable Notes:', processedProject.fireResistanceCalculations.applicableNotes.join(', '));
+  }
+} else {
+  console.log('No fire resistance calculations found');
+}

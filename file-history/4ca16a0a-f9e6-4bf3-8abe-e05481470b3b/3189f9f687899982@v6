@@ -1,0 +1,1276 @@
+# SM Firecell Note 1a Fix - Comprehensive Implementation Plan
+
+**Status**: Ready for Implementation
+**Priority**: CRITICAL
+**Estimated Complexity**: High
+**Fate of the Universe**: DEPENDENT ON THIS
+
+---
+
+## 🔥 EXECUTIVE SUMMARY
+
+The Note 1a evaluator for SM risk groups is failing to remove Type 2 (Manual fire alarm system) because the firecell object lacks critical properties:
+
+1. **`maxEscapeRouteBeds`** - Missing (CRITICAL) - prevents bed count exemption
+2. **`smOccupantType`** - Missing (MEDIUM) - should be explicitly collected from user
+3. **`numberOfEscapeRoutes`** - Missing (REQUIRED) - needed to validate against CAS2 Table 3.1
+
+**Root Cause**: We cannot calculate escape route distribution without architectural drawings. We need to collect this data directly from users.
+
+**Solution**: This plan implements:
+- **Escape route data collection** from users (number of routes, max beds/occupants per route)
+- **SM/SI occupant behavior dropdown** (permanent, transient, education, careOrDetention)
+- **Validation processor** to check user input against CAS2 requirements
+
+---
+
+## 📊 PROBLEM STATEMENT
+
+### Current Behavior (FAILING)
+
+**Test Scenario**: SM firecell with 10 bed spaces, escape height 4m
+
+**Form Input**:
+```javascript
+{
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 10,  // bed spaces
+  escapeHeight: 4
+}
+```
+
+**Fire Safety Systems Returned**: `['1', '2', '18']`
+**Expected**: `['1', '18']` (Type 2 should be removed by Note 1a)
+
+### Root Cause Analysis
+
+**Note 1a Requirement** (CAS2 Table 2.2 Note 1a):
+> "This system is not required where: For risk group SM, if the escape routes serve no more than 10 beds..."
+
+**Note 1a Evaluator Logic** (`note-1a-evaluator.js:31-42`):
+```javascript
+const bedCount = firecell.maxEscapeRouteBeds !== undefined
+  ? firecell.maxEscapeRouteBeds
+  : firecell.maxEscapeRouteOccupants;
+// ❌ bedCount = undefined (both properties missing)
+
+const bedExemption = typeof bedCount === 'number' && bedCount >= 0 && bedCount <= 10;
+// ❌ bedExemption = false (undefined is not a number)
+
+const exempt = bedExemption || directExitExemption;
+// ❌ exempt = false - NO EXEMPTION GRANTED
+```
+
+**Why Properties Are Missing**:
+
+1. **No Escape Route Processor**: The architecture expects an escape route analysis processor to calculate:
+   - Number of required escape routes (exists as validator but not processor)
+   - Maximum beds/occupants per escape route (not calculated anywhere)
+   - Travel distances (validators exist but no processor)
+   - Route widths (validators exist but no processor)
+
+2. **No SM Occupant Type Derivation**: The form collects `occupantType: "Sleeping non institutional"` but never maps it to `smOccupantType: "permanent"`. The orchestrator defaults to 'permanent' but the property remains undefined on the firecell object.
+
+3. **No Direct Exit Collection**: The form doesn't collect `exitDirectlyToSafePlace` data from users.
+
+---
+
+## 🎯 SOLUTION ARCHITECTURE
+
+### Three-Pillar Approach
+
+#### Pillar 1: Escape Route Processor (PRIMARY FIX)
+Create a comprehensive escape route analysis processor that calculates all escape route requirements and properties.
+
+#### Pillar 2: Sleeping Occupant Type Dropdown (FORM IMPROVEMENT)
+Add a NEW dropdown specifically for SM/SI (sleeping risk groups) to select their occupant behavior type (permanent, transient, education, careOrDetention). Remove the occupant density activity dropdown for SM/SI since they don't calculate occupant loads from floor area - they use bed spaces directly.
+
+#### Pillar 3: Form Field Separation (DATA CLARITY)
+Clearly separate the two different concepts:
+- **SM/SI**: Use `sleepingOccupantType` dropdown (permanent/transient/education/careOrDetention) + bed spaces input
+- **CA/WB/WS/VP**: Use `occupantType` dropdown (Office spaces, etc.) for occupant density calculation
+
+---
+
+## 📐 DETAILED DESIGN
+
+### Part 1: Escape Route Data Collection & Validation
+
+#### Purpose
+Collect escape route configuration from users and validate against CAS2 Part 3 requirements.
+
+#### Why User Input is Required
+
+**The Problem**: We cannot calculate `maxEscapeRouteBeds` or `maxEscapeRouteOccupants` without knowing the actual building layout.
+
+**Assumptions Don't Work**:
+- ❌ Assume all beds on one route → Too conservative, fails for multi-route buildings
+- ❌ Assume equal distribution → May not match reality, could be unsafe
+
+**The Solution**: Ask users to provide escape route configuration from their architectural drawings.
+
+#### Form Fields (Per Firecell)
+
+**File**: `/views/project-form.pug`
+
+Add after floor area field:
+
+```pug
+// Escape Route Configuration
+fieldset.escape-routes-config
+  legend Escape Route Configuration
+  p.help-text(style="font-style: italic; color: #666; margin-bottom: 10px;")
+    | Based on your building's architectural drawings and CAS2 Table 3.1 requirements.
+
+  div
+    label Number of Escape Routes:
+    input.route-count(type="number", name="firecells[0][numberOfEscapeRoutes]", min="1", max="10", required,
+          title="Total number of escape routes from this firecell per CAS2 Table 3.1")
+    span.required-routes-hint(style="margin-left: 10px; color: #666; font-style: italic;")
+      | (CAS2 Table 3.1 requires: <span class="min-routes">-</span> routes for this occupant load)
+
+  // SM/SI: Maximum beds per route
+  div.sm-si-route-distribution(style="display: none;")
+    label Maximum Beds on Largest Escape Route:
+    input(type="number", name="firecells[0][maxEscapeRouteBeds]", min="0", required,
+          title="The highest number of beds served by any single escape route",
+          placeholder="e.g., 10 beds")
+    p.help-text(style="font-size: 0.9em; color: #666; margin-top: 5px;")
+      | If routes serve different numbers of beds, enter the LARGEST number served by any one route.
+      | Example: Route A serves 10 beds, Route B serves 8 beds → Enter 10
+
+  // CA/WB/WS/VP: Maximum occupants per route
+  div.other-route-distribution(style="display: none;")
+    label Maximum Occupants on Largest Escape Route:
+    input(type="number", name="firecells[0][maxEscapeRouteOccupants]", min="0", required,
+          title="The highest number of occupants served by any single escape route",
+          placeholder="e.g., 50 occupants")
+    p.help-text(style="font-size: 0.9em; color: #666; margin-top: 5px;")
+      | If routes serve different numbers of occupants, enter the LARGEST number served by any one route.
+```
+
+#### JavaScript Helper (Distribution Calculator)
+
+**File**: `/public/js/form.js`
+
+Add helper function:
+
+```javascript
+/**
+ * Calculate suggested equal distribution of beds/occupants across routes
+ * Updates the UI with suggestions
+ */
+function updateRouteDistributionHint(firecell) {
+  const riskGroup = firecell.querySelector('select[name*="[riskGroup]"]')?.value;
+  const occupantLoad = parseInt(firecell.querySelector('input[name*="[occupantLoad]"]')?.value || 0);
+  const numberOfRoutes = parseInt(firecell.querySelector('.route-count')?.value || 1);
+
+  if (occupantLoad > 0 && numberOfRoutes > 0) {
+    const perRoute = Math.ceil(occupantLoad / numberOfRoutes);
+
+    if (riskGroup === 'SM' || riskGroup === 'SI') {
+      const maxBedsInput = firecell.querySelector('input[name*="[maxEscapeRouteBeds]"]');
+      if (maxBedsInput && !maxBedsInput.value) {
+        maxBedsInput.placeholder = `Suggested: ${perRoute} beds (equal distribution)`;
+      }
+    } else {
+      const maxOccupantsInput = firecell.querySelector('input[name*="[maxEscapeRouteOccupants]"]');
+      if (maxOccupantsInput && !maxOccupantsInput.value) {
+        maxOccupantsInput.placeholder = `Suggested: ${perRoute} occupants (equal distribution)`;
+      }
+    }
+  }
+}
+
+// Add event listener to route count input
+document.addEventListener('input', (e) => {
+  if (e.target.classList.contains('route-count')) {
+    const firecell = e.target.closest('.firecell-item');
+    updateRouteDistributionHint(firecell);
+  }
+});
+```
+
+#### Display Required Routes (Live Feedback)
+
+**File**: `/public/js/form.js`
+
+```javascript
+/**
+ * Show minimum required routes based on occupant load and risk group
+ */
+function updateRequiredRoutesHint(firecell) {
+  const riskGroup = firecell.querySelector('select[name*="[riskGroup]"]')?.value;
+  const occupantLoad = parseInt(firecell.querySelector('input[name*="[occupantLoad]"]')?.value || 0);
+  const minRoutesSpan = firecell.querySelector('.min-routes');
+
+  if (riskGroup && occupantLoad > 0 && minRoutesSpan) {
+    const requiredRoutes = getRequiredRouteCount(riskGroup, occupantLoad);
+    minRoutesSpan.textContent = requiredRoutes;
+    minRoutesSpan.parentElement.style.display = 'inline';
+  }
+}
+
+// Import route calculation from existing validator
+// Or replicate the logic from route-number-validator.js
+function getRequiredRouteCount(riskGroup, occupantLoad) {
+  // Simplified version - full logic should match route-number-validator.js
+  const ROUTE_REQUIREMENTS = {
+    SM: { 50: 1, 100: 2, 150: 3, 200: 3, 250: 4, 300: 4 },
+    SI: { 50: 2, 100: 3, 150: 3, 200: 4, 250: 4, 300: 4 },
+    // ... etc
+  };
+
+  const requirements = ROUTE_REQUIREMENTS[riskGroup];
+  if (!requirements) return 1;
+
+  for (const [threshold, routes] of Object.entries(requirements).sort((a, b) => a[0] - b[0])) {
+    if (occupantLoad <= parseInt(threshold)) {
+      return routes;
+    }
+  }
+  return 1;
+}
+```
+
+#### Location
+- **Primary**: `/api/processors/escape-routes/orchestrator.js`
+- **Validators**: `/api/processors/escape-routes/validator.js`
+- **Calculators**: `/api/processors/escape-routes/calculator.js`
+
+#### Input (From Form)
+- `projectModel` with all firecells containing:
+  - `numberOfEscapeRoutes` (user-provided)
+  - `maxEscapeRouteBeds` (SM/SI, user-provided)
+  - `maxEscapeRouteOccupants` (CA/WB/WS/VP, user-provided)
+  - `occupantLoad` (bed spaces for SM/SI, calculated for others)
+  - `riskGroup`
+  - `escapeHeight`
+  - `floorArea`
+  - `floor`
+  - `isSprinklered`
+
+#### Processing Logic
+
+```javascript
+function processEscapeRoutes(projectModel) {
+  const firecells = projectModel.getAllFirecells();
+
+  for (let i = 0; i < firecells.length; i++) {
+    const firecell = firecells[i];
+
+    // 1. Calculate required number of escape routes (CAS2 Table 3.1)
+    const requiredRoutes = getRequiredRouteCount(
+      firecell.riskGroup,
+      firecell.occupantLoad
+    );
+
+    // 2. Validate route count meets CAS2 requirements
+    if (!firecell.numberOfEscapeRoutes) {
+      throw new Error(`Firecell ${i + 1}: Number of escape routes is required`);
+    }
+
+    if (firecell.numberOfEscapeRoutes < requiredRoutes) {
+      throw new Error(
+        `Firecell ${i + 1}: Insufficient escape routes. ` +
+        `Provided: ${firecell.numberOfEscapeRoutes}, Required: ${requiredRoutes}`
+      );
+    }
+
+    // 3. Validate maxEscapeRouteBeds/maxEscapeRouteOccupants (user-provided from form)
+    if (firecell.riskGroup === 'SM' || firecell.riskGroup === 'SI') {
+      if (firecell.maxEscapeRouteBeds === undefined) {
+        throw new Error(`Firecell ${i + 1}: Maximum beds per escape route is required`);
+      }
+      if (firecell.maxEscapeRouteBeds > firecell.occupantLoad) {
+        throw new Error(
+          `Firecell ${i + 1}: Max beds/route (${firecell.maxEscapeRouteBeds}) ` +
+          `cannot exceed total beds (${firecell.occupantLoad})`
+        );
+      }
+    } else {
+      if (firecell.maxEscapeRouteOccupants === undefined) {
+        throw new Error(`Firecell ${i + 1}: Maximum occupants per escape route is required`);
+      }
+      if (firecell.maxEscapeRouteOccupants > firecell.occupantLoad) {
+        throw new Error(
+          `Firecell ${i + 1}: Max occupants/route (${firecell.maxEscapeRouteOccupants}) ` +
+          `cannot exceed total occupants (${firecell.occupantLoad})`
+        );
+      }
+    }
+
+    // 4. Store validated route requirements
+    projectModel.firecells[i].requiredEscapeRoutes = requiredRoutes;
+
+    // 4. Calculate route widths (CAS2 Table 3.1a)
+    const minWidths = calculateMinimumRouteWidths(
+      firecell.riskGroup,
+      firecell.occupantLoad,
+      requiredRoutes
+    );
+    projectModel.firecells[i].minimumRouteWidths = minWidths;
+
+    // 5. Calculate travel distance limits (CAS2 Tables 3.2, 3.4)
+    const fireSystems = projectModel.firecells[i].fireSafetySystems || [];
+    const fireProtectionLevel = determineFireProtectionLevel(fireSystems);
+
+    const travelLimits = calculateTravelDistanceLimits(
+      firecell.riskGroup,
+      fireProtectionLevel
+    );
+    projectModel.firecells[i].travelDistanceLimits = travelLimits;
+  }
+
+  return projectModel;
+}
+```
+
+#### Why User Input is the Correct Approach
+
+1. **Accuracy**: Users have architectural drawings showing actual escape route layouts
+2. **Safety**: No unsafe assumptions - real data from building design
+3. **Note 1a Works Correctly**: Genuine data for "escape routes serve no more than 10 beds"
+4. **Compliance Validation**: Can verify route count meets CAS2 Table 3.1
+5. **Educational**: Helps users understand escape route requirements
+
+**Examples**:
+- **Equal distribution**: 20 beds, 2 routes, each serves 10 beds
+  - User enters: `numberOfEscapeRoutes=2`, `maxEscapeRouteBeds=10`
+  - Note 1a: maxEscapeRouteBeds=10 → ≤10 → Exemption granted ✅
+
+- **Unequal distribution**: 20 beds, 2 routes, Route A serves 15, Route B serves 5
+  - User enters: `numberOfEscapeRoutes=2`, `maxEscapeRouteBeds=15` (the larger)
+  - Note 1a: maxEscapeRouteBeds=15 → >10 → No exemption ✅
+
+#### Output Properties Added to Each Firecell
+
+```javascript
+{
+  // SM risk group
+  maxEscapeRouteBeds: 10,              // NEW - Maximum beds served by largest escape route
+  requiredEscapeRoutes: 1,             // NEW - Number of routes required
+  minimumRouteWidths: {                // NEW - Minimum width requirements
+    horizontal: 850,
+    vertical: 1000
+  },
+  travelDistanceLimits: {              // NEW - Travel distance limits
+    deadEndOpenPath: 20,
+    totalOpenPath: 50,
+    singleDirectionSafePath: 25,
+    multipleDirectionSafePath: 180
+  },
+
+  // Other risk groups (CA/WB/WS/VP)
+  maxEscapeRouteOccupants: 40,         // NEW - Maximum occupants served by largest route
+  // ... (same other properties)
+}
+```
+
+---
+
+### Part 2: Sleeping Occupant Type Dropdown
+
+#### Problem
+The current form shows ONE dropdown (occupant density activities with 50+ options) for ALL risk groups, but this is conceptually wrong:
+
+- **SM/SI** don't use occupant density for calculations - they use **bed spaces** (manual entry)
+- **SM/SI** need to specify occupant **behavior** type (permanent, transient, education, careOrDetention) for fire system determination
+- **CA/WB/WS/VP** use occupant density activities (Office spaces, etc.) to **calculate** occupant load from floor area
+
+Currently, SM/SI are forced to select "Sleeping non institutional" or "Care and detention" from the occupant density dropdown, but then this value is NEVER used for calculations and is incorrectly mapped.
+
+#### Solution
+**TWO SEPARATE DROPDOWNS**:
+
+1. **SM/SI**: New `sleepingOccupantType` dropdown with 4 behavior options
+   - permanent (apartments, boarding houses)
+   - transient (hotels, motels, hostels)
+   - education (boarding schools, university halls)
+   - careOrDetention (hospitals, prisons, aged care)
+
+2. **CA/WB/WS/VP**: Keep existing `occupantType` dropdown with occupant density activities
+   - Office spaces
+   - Retail spaces
+   - (50+ options from CAS2 Table 1.2)
+
+#### Form Changes
+
+**File**: `/views/project-form.pug`
+
+**Current** (lines 86-91):
+```pug
+div
+  label Occupant Type:
+  select(name="firecells[0][occupantType]", required)
+    option(value="") -- Select Occupant Type --
+    each occupantType in occupantTypes
+      option(value=occupantType)= occupantType
+```
+
+**New**:
+```pug
+// SM/SI: Sleeping occupant type dropdown (4 options)
+div.sleeping-occupant-type(style="display: none;")
+  label Sleeping Occupant Type:
+  select(name="firecells[0][sleepingOccupantType]", required)
+    option(value="") -- Select Occupant Type --
+    option(value="permanent") Permanent Accommodation (apartments, boarding houses)
+    option(value="transient") Transient Accommodation (hotels, motels, hostels)
+    option(value="education") Educational Accommodation (boarding schools, university halls)
+    option(value="careOrDetention") Care or Detention (hospitals, prisons, aged care)
+  p.help-text(style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px;")
+    | This determines which fire safety systems are required per CAS2 Table 2.2
+
+// CA/WB/WS/VP: Occupant density activity dropdown (50+ options)
+div.other-occupant-type
+  label Occupant Density Activity:
+  select(name="firecells[0][occupantType]", required)
+    option(value="") -- Select Activity Type --
+    each occupantType in occupantTypes
+      option(value=occupantType)= occupantType
+  p.help-text(style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px;")
+    | Used to calculate occupant load from floor area per CAS2 Table 1.2
+```
+
+**File**: `/public/js/form.js`
+
+Update `toggleConditionalFields()` function:
+
+```javascript
+function toggleConditionalFields(selectElement) {
+  const firecell = selectElement.closest('.firecell-item');
+  const vpFields = firecell.querySelector('.vp-only');
+  const caFields = firecell.querySelector('.ca-only');
+
+  // NEW: Occupant type field control
+  const sleepingOccupantType = firecell.querySelector('.sleeping-occupant-type');
+  const otherOccupantType = firecell.querySelector('.other-occupant-type');
+
+  // Hide all conditional fields first
+  if (vpFields) vpFields.style.display = 'none';
+  if (caFields) caFields.style.display = 'none';
+  if (sleepingOccupantType) sleepingOccupantType.style.display = 'none';
+  if (otherOccupantType) otherOccupantType.style.display = 'none';
+
+  // Show relevant fields based on risk group
+  if (selectElement.value === 'SM' || selectElement.value === 'SI') {
+    // SM/SI: Show sleeping occupant type dropdown
+    if (sleepingOccupantType) sleepingOccupantType.style.display = 'block';
+  } else if (['CA', 'WB', 'WS', 'VP'].includes(selectElement.value)) {
+    // CA/WB/WS/VP: Show occupant density activity dropdown
+    if (otherOccupantType) otherOccupantType.style.display = 'block';
+
+    // Show risk group specific fields
+    if (selectElement.value === 'VP' && vpFields) {
+      vpFields.style.display = 'block';
+    } else if (selectElement.value === 'CA' && caFields) {
+      caFields.style.display = 'block';
+    }
+  }
+
+  // Update occupant load label based on risk group (SM/SI use "Bed Spaces")
+  updateOccupantLoadLabel(firecell, selectElement.value);
+
+  // Update occupant load field visibility (show for SM/SI, hide for others)
+  updateOccupantLoadFields(firecell, selectElement.value);
+}
+```
+
+#### Server Handling
+
+**File**: `/server.js`
+
+Update firecell processing (around line 62-106):
+
+```javascript
+firecells.forEach(firecellData => {
+  if (firecellData && firecellData.riskGroup) {
+    const firecell = {
+      riskGroup: firecellData.riskGroup,
+      escapeHeight: parseFloat(firecellData.escapeHeight),
+      isSprinklered: firecellData.isSprinklered === 'true',
+      floorArea: parseFloat(firecellData.floorArea),
+      floor: firecellData.floor
+    };
+
+    // SM/SI: Use sleepingOccupantType (NO occupantType)
+    if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+      // Get the sleeping behavior type from form
+      firecell.sleepingOccupantType = firecellData.sleepingOccupantType;
+
+      // SM/SI use bed spaces (manual entry)
+      if (firecellData.occupantLoad) {
+        firecell.occupantLoad = parseFloat(firecellData.occupantLoad);
+      }
+    } else {
+      // CA/WB/WS/VP: Use occupantType for density calculation
+      firecell.occupantType = firecellData.occupantType;
+      // occupantLoad will be calculated by occupant-load processor
+    }
+
+    // Add other risk group specific fields...
+    if (firecellData.riskGroup === 'VP' && firecellData.hasVehicleStacker !== undefined) {
+      firecell.hasVehicleStacker = firecellData.hasVehicleStacker === 'true';
+    }
+    // ... etc
+
+    projectModel.addFirecell(firecell);
+  }
+});
+```
+
+**File**: `/api/models/project-model.js`
+
+Update `validateFirecell()` method (around line 60-92):
+
+```javascript
+validateFirecell(firecellData) {
+  const validRiskGroups = ['SM', 'SI', 'CA', 'WB', 'WS', 'VP'];
+
+  if (!firecellData.riskGroup || !validRiskGroups.includes(firecellData.riskGroup)) {
+    throw new Error(`Invalid risk group. Must be one of: ${validRiskGroups.join(', ')}`);
+  }
+
+  // Validate SM/SI sleeping occupant type
+  if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+    const validTypes = ['permanent', 'transient', 'education', 'careOrDetention'];
+
+    if (!firecellData.sleepingOccupantType) {
+      throw new Error(`${firecellData.riskGroup} risk group requires sleepingOccupantType`);
+    }
+
+    if (!validTypes.includes(firecellData.sleepingOccupantType)) {
+      throw new Error(`Invalid sleepingOccupantType: ${firecellData.sleepingOccupantType}. Must be one of: ${validTypes.join(', ')}`);
+    }
+
+    // SM/SI: Bed spaces are REQUIRED (manual entry per CAS2 Section 1.4.5)
+    if (firecellData.occupantLoad === undefined || typeof firecellData.occupantLoad !== 'number' || firecellData.occupantLoad < 0) {
+      throw new Error('Bed spaces (occupant load) is required for SM/SI risk groups and must be a non-negative number');
+    }
+  } else {
+    // CA/WB/WS/VP: Validate occupant density activity type
+    if (!firecellData.occupantType || typeof firecellData.occupantType !== 'string') {
+      throw new Error('Occupant type is required and must be a string');
+    }
+
+    if (!validateOccupantDensity(firecellData.occupantType)) {
+      throw new Error(`Invalid occupant type: ${firecellData.occupantType}`);
+    }
+
+    // occupantLoad is optional (will be calculated)
+    if (firecellData.occupantLoad !== undefined) {
+      if (typeof firecellData.occupantLoad !== 'number' || firecellData.occupantLoad < 0) {
+        throw new Error('Occupant load must be a non-negative number when provided');
+      }
+    }
+  }
+
+  // ... rest of validation
+}
+```
+
+---
+
+### Part 3: Fire Safety Systems Orchestrator Update
+
+No mapping needed! The form now directly provides `sleepingOccupantType` with the correct values (permanent, transient, education, careOrDetention).
+
+**File**: `/api/processors/fire-safety-systems/orchestrator.js`
+
+Update lines 20-23 (SIMPLIFIED):
+
+```javascript
+// BEFORE
+// SM/SI risk groups need occupantType ('permanent' or 'transient')
+if (['SM', 'SI'].includes(firecell.riskGroup)) {
+  params.occupantType = firecell.smOccupantType || firecell.siOccupantType || 'permanent'; // Default to permanent
+}
+
+// AFTER (CLEAN!)
+// SM/SI risk groups need occupantType ('permanent' or 'transient')
+if (['SM', 'SI'].includes(firecell.riskGroup)) {
+  // sleepingOccupantType now comes directly from the form
+  // No derivation or mapping needed!
+  params.occupantType = firecell.sleepingOccupantType;
+
+  if (!params.occupantType) {
+    throw new Error(`${firecell.riskGroup} firecell missing sleepingOccupantType`);
+  }
+}
+```
+
+---
+
+### Part 4: Pipeline Integration
+
+**File**: `/api/pipeline.js`
+
+Update to include escape routes processor:
+
+```javascript
+function processPipeline(projectModel, documentType = 'fire-report') {
+  let processedModel = projectModel;
+
+  // Phase 1: Data processing and compliance checks
+  processedModel = processHazardousSubstances(processedModel);
+  processedModel = processOccupantLoads(processedModel);
+
+  // NEW: Process escape routes BEFORE fire safety systems
+  // This must run after occupant loads are calculated but before fire safety systems
+  // because Note 1a/1b/1c evaluations need maxEscapeRouteBeds/maxEscapeRouteOccupants
+  processedModel = processEscapeRoutes(processedModel);
+
+  processedModel = processFireSafetySystems(processedModel);
+  processedModel = processFirecells(processedModel);
+  processedModel = processFireResistance(processedModel);
+
+  // Phase 2: Report generation
+  processedModel = buildReport(processedModel, documentType);
+
+  return processedModel;
+}
+```
+
+**CRITICAL ORDER**:
+1. `processOccupantLoads` - Calculates occupantLoad for CA/WB/WS/VP
+2. **`processEscapeRoutes`** - Calculates maxEscapeRouteBeds/maxEscapeRouteOccupants (NEW)
+3. `processFireSafetySystems` - Uses escape route data for Note 1a/1b/1c evaluations
+
+---
+
+## 📝 IMPLEMENTATION CHECKLIST
+
+### Files to CREATE
+
+- [ ] `/api/processors/escape-routes/orchestrator.js` - Main escape route processor
+- [ ] `/api/processors/escape-routes/calculator.js` - Route calculations
+- [ ] `/api/processors/escape-routes/route-analyzer.js` - Route analysis utilities
+
+### Files to MODIFY
+
+#### Core Processing
+- [ ] `/api/pipeline.js` - Add processEscapeRoutes() call
+- [ ] `/api/processors/fire-safety-systems/orchestrator.js` - Simplified: use smOccupantType directly
+- [ ] `/api/models/project-model.js` - Update validation for SM/SI vs CA/WB/WS/VP
+- [ ] `/server.js` - Update firecell processing to handle smOccupantType/siOccupantType
+
+#### Frontend
+- [ ] `/views/project-form.pug` - Add SM/SI occupant behavior dropdown, keep CA/WB/WS/VP density dropdown
+- [ ] `/public/js/form.js` - Update toggleConditionalFields() and addFirecell()
+
+#### Tests (EXTENSIVE UPDATES REQUIRED)
+- [ ] `/tests/unit/processors/fire-safety-systems.test.js` - Add smOccupantType
+- [ ] `/tests/unit/processors/fire-safety-systems/note-1a-evaluator.test.js` - Update test data
+- [ ] `/tests/unit/processors/occupant-load.test.js` - Update SM/SI tests
+- [ ] `/tests/unit/NEW-EDGE-CASE-TESTS.test.js` - Update SM/SI tests (12 occurrences)
+- [ ] `/tests/integration/occupant-load-integration.test.js` - Update SM tests
+- [ ] `/tests/integration/project-model-integration.test.js` - Update SM tests
+- [ ] `/tests/unit/processors/remote-receiving-centre.test.js` - Update SM tests
+- [ ] `/tests/unit/processors/firecells.test.js` - Update SM tests
+- [ ] `/tests/unit/processors/fire-resistance.test.js` - Update SM tests
+- [ ] All other test files with SM/SI firecells (19 files total with 95 occurrences)
+
+#### Test Scripts
+- [ ] `/scripts/pipeline-test.js` - Update SM firecell data
+
+---
+
+## 🧪 TESTING STRATEGY
+
+### Unit Tests to Create
+
+#### 1. Escape Routes Processor Tests
+**File**: `/tests/unit/processors/escape-routes/orchestrator.test.js`
+
+```javascript
+describe('Escape Routes Processor', () => {
+  describe('SM Risk Group', () => {
+    test('should set maxEscapeRouteBeds equal to occupantLoad (bed spaces)', () => {
+      const projectModel = new ProjectModel();
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        occupantType: 'Sleeping non institutional',
+        occupantLoad: 10,  // 10 bed spaces
+        escapeHeight: 4,
+        isSprinklered: false,
+        floorArea: 200,
+        floor: 'G'
+      });
+
+      const result = processEscapeRoutes(projectModel);
+
+      expect(result.firecells[0].maxEscapeRouteBeds).toBe(10);
+      expect(result.firecells[0].requiredEscapeRoutes).toBe(1);
+    });
+
+    test('should calculate route widths for SM firecells', () => {
+      // ... test implementation
+    });
+  });
+
+  describe('CA Risk Group', () => {
+    test('should set maxEscapeRouteOccupants for CA firecells', () => {
+      // ... test implementation
+    });
+  });
+
+  // Additional tests for all risk groups
+});
+```
+
+#### 2. Occupant Type Mapper Tests
+**File**: `/tests/unit/processors/escape-routes/occupant-type-mapper.test.js`
+
+```javascript
+describe('SM/SI Occupant Type Mapper', () => {
+  test('should map "Sleeping non institutional" to "permanent" for SM', () => {
+    const result = deriveSmSiOccupantType('SM', 'Sleeping non institutional');
+    expect(result).toBe('permanent');
+  });
+
+  test('should map "Care and detention" to "careOrDetention" for SI', () => {
+    const result = deriveSmSiOccupantType('SI', 'Care and detention');
+    expect(result).toBe('careOrDetention');
+  });
+
+  test('should throw error for non-SM/SI risk groups', () => {
+    expect(() => deriveSmSiOccupantType('CA', 'Office spaces'))
+      .toThrow('deriveSmSiOccupantType only applies to SM/SI risk groups');
+  });
+});
+```
+
+#### 3. Form Validator Tests
+**File**: `/tests/unit/validators/validate-occupant-density-activity.test.js`
+
+```javascript
+describe('Occupant Type Risk Group Validator', () => {
+  test('should accept "Sleeping non institutional" for SM', () => {
+    const result = validateOccupantTypeForRiskGroup('SM', 'Sleeping non institutional');
+    expect(result.valid).toBe(true);
+  });
+
+  test('should reject other occupant types for SM', () => {
+    const result = validateOccupantTypeForRiskGroup('SM', 'Office spaces');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('SM risk group must use "Sleeping non institutional"');
+  });
+
+  test('should accept "Care and detention" for SI', () => {
+    const result = validateOccupantTypeForRiskGroup('SI', 'Care and detention');
+    expect(result.valid).toBe(true);
+  });
+
+  test('should reject other occupant types for SI', () => {
+    const result = validateOccupantTypeForRiskGroup('SI', 'Sleeping non institutional');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('SI risk group must use "Care and detention"');
+  });
+});
+```
+
+### Integration Tests
+
+#### End-to-End Test
+**File**: `/tests/integration/note-1a-exemption-integration.test.js` (NEW)
+
+```javascript
+describe('Note 1a Exemption - End-to-End Integration', () => {
+  test('SM firecell with 10 beds should have Type 2 removed by Note 1a', () => {
+    const projectModel = new ProjectModel();
+
+    // Add SM firecell with 10 beds (at the exemption threshold)
+    projectModel.addFirecell({
+      riskGroup: 'SM',
+      occupantType: 'Sleeping non institutional',
+      occupantLoad: 10,
+      escapeHeight: 4,
+      isSprinklered: false,
+      floorArea: 200,
+      floor: 'G'
+    });
+
+    // Run full pipeline
+    let processed = projectModel;
+    processed = processOccupantLoads(processed);
+    processed = processEscapeRoutes(processed);  // NEW
+    processed = processFireSafetySystems(processed);
+
+    // Verify escape route properties set
+    expect(processed.firecells[0].maxEscapeRouteBeds).toBe(10);
+    expect(processed.firecells[0].smOccupantType).toBe('permanent');
+
+    // Verify fire safety systems
+    const systems = processed.firecells[0].fireSafetySystems;
+    expect(systems).toContain('1');   // Type 1 should be present
+    expect(systems).not.toContain('2'); // Type 2 should be removed by Note 1a
+    expect(systems).toContain('18');  // Type 18 should be present
+  });
+
+  test('SM firecell with 11 beds should NOT have Type 2 removed', () => {
+    // ... test implementation (beds exceed threshold)
+  });
+});
+```
+
+### Test Data Updates
+
+**Pattern for ALL test files**:
+
+```javascript
+// BEFORE
+projectModel.addFirecell({
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 10,
+  escapeHeight: 4,
+  isSprinklered: false,
+  floorArea: 200,
+  floor: 'G'
+});
+
+// AFTER (add these properties if testing escape routes or fire systems)
+projectModel.addFirecell({
+  riskGroup: 'SM',
+  occupantType: 'Sleeping non institutional',
+  occupantLoad: 10,
+  escapeHeight: 4,
+  isSprinklered: false,
+  floorArea: 200,
+  floor: 'G',
+  smOccupantType: 'permanent',        // ADD if needed for fire systems
+  maxEscapeRouteBeds: 10              // ADD if needed for Note 1a tests
+});
+```
+
+**Automated Fix Script** (to help update all 95 occurrences):
+
+```javascript
+// Script: scripts/update-test-sm-firecells.js
+const fs = require('fs');
+const path = require('path');
+
+// Read all test files and add missing properties to SM/SI firecells
+// Run this to automatically update test data
+```
+
+---
+
+## 🎯 DATA FLOW DIAGRAM
+
+### Complete Flow (After Implementation)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ FORM SUBMISSION                                                  │
+│ User selects: Risk Group = SM                                    │
+│ → Auto-sets: occupantType = "Sleeping non institutional" ✅     │
+│ User enters: occupantLoad = 10 (bed spaces)                     │
+│            escapeHeight = 4                                     │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ SERVER (server.js)                                              │
+│ Validates occupantType matches risk group ✅                    │
+│ Creates firecell object:                                        │
+│   { riskGroup: 'SM',                                            │
+│     occupantType: 'Sleeping non institutional',                 │
+│     occupantLoad: 10 }                                          │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PROJECT MODEL (project-model.js)                                │
+│ Validates all fields ✅                                         │
+│ Validates occupantType is correct for SM ✅                     │
+│ Stores firecell                                                 │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PIPELINE - processOccupantLoads                                 │
+│ SM: Skips (occupantLoad already set to bed spaces) ✅           │
+│ CA/WB/WS/VP: Calculates from floor area                         │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PIPELINE - processEscapeRoutes ⭐ NEW                           │
+│ Calculates required escape routes (Table 3.1)                   │
+│ Sets maxEscapeRouteBeds = occupantLoad (10) ✅                 │
+│ Calculates route widths                                         │
+│ Calculates travel distance limits                               │
+│                                                                  │
+│ Firecell now has:                                               │
+│   maxEscapeRouteBeds: 10 ✅                                     │
+│   requiredEscapeRoutes: 1                                       │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PIPELINE - processFireSafetySystems                             │
+│ Orchestrator derives smOccupantType:                            │
+│   deriveSmSiOccupantType('SM', 'Sleeping non institutional')    │
+│   → Returns: 'permanent' ✅                                     │
+│ Sets firecell.smOccupantType = 'permanent' ✅                   │
+│                                                                  │
+│ Looks up fire systems:                                          │
+│   getFireSafetySystems('SM', {                                  │
+│     occupantType: 'permanent',                                  │
+│     escapeHeight: 4                                             │
+│   })                                                            │
+│   → Returns: ['1', '2^1a', '18^2'] ✅                           │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ NOTE EVALUATOR - evaluateNote1a                                 │
+│ Receives firecell with:                                         │
+│   maxEscapeRouteBeds: 10 ✅                                     │
+│   smOccupantType: 'permanent' ✅                                │
+│                                                                  │
+│ Evaluates:                                                      │
+│   bedCount = firecell.maxEscapeRouteBeds → 10 ✅               │
+│   bedExemption = (10 >= 0 && 10 <= 10) → true ✅               │
+│   exempt = true ✅                                              │
+│                                                                  │
+│ Returns: { applies: true, exempt: true, reason: '≤10 beds' } ✅ │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ CALCULATOR - applyNoteEvaluations                               │
+│ Processes '2^1a':                                               │
+│   evaluateNote1a() returns exempt=true ✅                       │
+│   Sets keepSystem = false ✅                                    │
+│   REMOVES Type 2 from systems ✅                                │
+│                                                                  │
+│ Final systems: ['1', '18'] ✅                                   │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ RESULT                                                          │
+│ firecell.fireSafetySystems = ['1', '18'] ✅ SUCCESS!            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ⚠️ EDGE CASES & RISKS
+
+### Edge Cases to Handle
+
+#### 1. Multi-Firecell Buildings
+**Scenario**: Building with multiple firecells, some SM, some other risk groups
+
+**Handling**:
+- Each firecell processed independently
+- Escape route processor runs for each firecell
+- Fire system harmonization (Table 2.3) still applies
+
+**Test**:
+```javascript
+test('should handle mixed risk groups correctly', () => {
+  projectModel.addFirecell({ riskGroup: 'SM', occupantLoad: 10 });
+  projectModel.addFirecell({ riskGroup: 'CA', occupantLoad: 100 });
+  // Verify both get correct maxEscapeRouteBeds/maxEscapeRouteOccupants
+});
+```
+
+#### 2. SM with Exactly 10 Beds (Boundary)
+**Scenario**: Firecell with exactly 10 beds (at the exemption threshold)
+
+**Handling**: Note 1a says "≤10 beds" so 10 should grant exemption
+
+**Test**: Already covered in integration test above
+
+#### 3. SM with 11 Beds (Just Over Threshold)
+**Scenario**: Firecell with 11 beds (just over exemption threshold)
+
+**Expected**: Type 2 should NOT be removed
+
+**Test**:
+```javascript
+test('SM with 11 beds should keep Type 2', () => {
+  projectModel.addFirecell({
+    riskGroup: 'SM',
+    occupantType: 'Sleeping non institutional',
+    occupantLoad: 11,  // Over threshold
+    escapeHeight: 4,
+    isSprinklered: false,
+    floorArea: 220,
+    floor: 'G'
+  });
+
+  // Run pipeline
+  const result = processPipeline(projectModel);
+
+  // Type 2 should be present
+  expect(result.firecells[0].fireSafetySystems).toContain('2');
+});
+```
+
+#### 4. SI Risk Group (Always Requires 2 Routes)
+**Scenario**: SI firecell with low occupancy
+
+**Special Handling**: SI always requires minimum 2 escape routes per CAS2 Table 3.1
+
+**Implementation**:
+```javascript
+// In escape-routes/calculator.js
+function getRequiredRouteCount(riskGroup, occupantLoad) {
+  if (riskGroup === 'SI') {
+    // SI always requires minimum 2 routes
+    const tableRoutes = lookupTableRoutes(riskGroup, occupantLoad);
+    return Math.max(tableRoutes, 2);
+  }
+  return lookupTableRoutes(riskGroup, occupantLoad);
+}
+```
+
+#### 5. Direct Exit to Safe Place
+**Scenario**: User wants to claim direct exit exemption for Note 1a
+
+**Current Status**: Not collected from form
+
+**Future Enhancement**: Add optional checkbox to form:
+```pug
+// Future: Add to SM firecell fields
+div.sm-only
+  label Exit directly to safe place:
+  select(name="firecells[0][exitDirectlyToSafePlace]")
+    option(value="") -- Unknown --
+    option(value="true") Yes
+    option(value="false") No
+```
+
+**For Now**: Assume unknown (don't grant exemption via this path)
+
+#### 6. Future: Actual Escape Route Layouts
+**Scenario**: User provides architectural drawings with actual escape route configurations
+
+**Current Implementation**: Assumes worst case (all beds on one route)
+
+**Future Enhancement**: Accept escape route configuration:
+```javascript
+// Future enhancement
+firecell.escapeRoutes = [
+  { routeId: 'A', bedsServed: 6 },
+  { routeId: 'B', bedsServed: 4 }
+];
+// maxEscapeRouteBeds = Math.max(6, 4) = 6
+```
+
+---
+
+## 🚀 IMPLEMENTATION ORDER
+
+### Phase 1: Foundation (Escape Routes Processor)
+**Priority**: CRITICAL - Blocks Note 1a fix
+
+1. Create `/api/processors/escape-routes/calculator.js`
+   - Implement `getRequiredRouteCount()` using route-number-validator lookup
+   - Implement `calculateMinimumRouteWidths()`
+   - Implement `calculateTravelDistanceLimits()`
+   - Implement `determineFireProtectionLevel()`
+
+2. Create `/api/processors/escape-routes/occupant-type-mapper.js`
+   - Implement `deriveSmSiOccupantType()`
+   - Implement `isValidOccupantTypeForRiskGroup()`
+   - Export mapping constants
+
+3. Create `/api/processors/escape-routes/orchestrator.js`
+   - Implement `processEscapeRoutes()`
+   - Integrate calculator functions
+   - Set all required properties on firecells
+
+4. Update `/api/pipeline.js`
+   - Import `processEscapeRoutes`
+   - Add to pipeline AFTER `processOccupantLoads` and BEFORE `processFireSafetySystems`
+
+5. Create unit tests for escape routes processor
+   - Test all risk groups
+   - Test edge cases
+   - Test route calculations
+
+### Phase 2: Fire Safety System Integration
+**Priority**: CRITICAL - Completes Note 1a fix
+
+6. Update `/api/processors/fire-safety-systems/orchestrator.js`
+   - Import `deriveSmSiOccupantType`
+   - Add derivation logic for SM/SI firecells
+   - Store `smOccupantType` on firecell and projectModel
+
+7. Run existing Note 1a tests
+   - Verify Note 1a now works correctly
+   - Update test data to include new properties
+
+### Phase 3: Form Simplification (SM/SI)
+**Priority**: HIGH - UX improvement and data integrity
+
+8. Update `/views/project-form.pug`
+   - Add SM/SI fixed occupant type fields
+   - Add CA/WB/WS/VP dropdown fields
+   - Add conditional display logic
+
+9. Update `/public/js/form.js`
+   - Modify `toggleConditionalFields()`
+   - Modify `addFirecell()`
+   - Update fillTestData()
+
+10. Create `/api/validators/form-validators/validate-occupant-density-activity.js`
+    - Implement `validateOccupantTypeForRiskGroup()`
+    - Add comprehensive validation
+
+11. Update `/api/models/project-model.js`
+    - Add occupant type validation
+    - Integrate with form validator
+
+### Phase 4: Comprehensive Testing
+**Priority**: CRITICAL - Ensures correctness
+
+12. Create integration tests
+    - End-to-end Note 1a exemption test
+    - Multi-firecell tests
+    - Mixed risk group tests
+
+13. Update ALL existing tests (95 occurrences across 19 files)
+    - Add `smOccupantType` where needed
+    - Add `maxEscapeRouteBeds` where needed
+    - Fix any broken tests
+
+14. Create occupant type mapper tests
+    - Test all mappings
+    - Test error cases
+
+15. Create form validator tests
+    - Test SM validation
+    - Test SI validation
+    - Test other risk groups
+
+### Phase 5: Documentation and Cleanup
+**Priority**: MEDIUM
+
+16. Update `/api/data/CLAUDE.md` if needed
+    - Document occupant type restrictions
+    - Document escape route properties
+
+17. Clean up any temporary console.log statements
+
+18. Update this plan with any learnings
+
+---
+
+## ✅ VALIDATION & ACCEPTANCE CRITERIA
+
+### Acceptance Criteria
+
+#### 1. Note 1a Works Correctly
+- [ ] SM firecell with ≤10 beds has Type 2 removed
+- [ ] SM firecell with >10 beds keeps Type 2
+- [ ] Note 1a evaluator receives `maxEscapeRouteBeds`
+- [ ] Note 1a evaluator receives `smOccupantType`
+
+#### 2. Form Improvements
+- [ ] SM risk group auto-sets occupantType to "Sleeping non institutional"
+- [ ] SI risk group auto-sets occupantType to "Care and detention"
+- [ ] Occupant type dropdown hidden for SM/SI
+- [ ] Occupant type dropdown shown for CA/WB/WS/VP
+- [ ] Help text explains why occupant type is fixed for SM/SI
+
+#### 3. Validation
+- [ ] Server rejects SM firecells with wrong occupant type
+- [ ] Server rejects SI firecells with wrong occupant type
+- [ ] Server accepts CA/WB/WS/VP with any valid occupant type
+
+#### 4. Data Integrity
+- [ ] All firecells have `maxEscapeRouteBeds` or `maxEscapeRouteOccupants`
+- [ ] All SM/SI firecells have `smOccupantType` set
+- [ ] All firecells have `requiredEscapeRoutes` calculated
+- [ ] All firecells have route width and travel distance limits
+
+#### 5. Tests Pass
+- [ ] All existing tests pass (after updates)
+- [ ] New escape route processor tests pass
+- [ ] New occupant type mapper tests pass
+- [ ] New form validator tests pass
+- [ ] Integration test for Note 1a passes
+
+---
+
+## 🎓 KNOWLEDGE TRANSFER
+
+### Key Concepts for Future Developers
+
+#### Conservative Assumption Strategy
+When user data is unavailable, make **conservative assumptions that favor safety**:
+- Assume all occupants/beds on one route (worst case)
+- This ensures Note 1a only grants exemptions when truly safe (≤10 beds total)
+- Future enhancement: accept actual escape route layouts for precision
+
+#### SM/SI Occupant Type vs. Occupant Density
+**Two different concepts**:
+
+1. **Occupant Density Activity Type** (Table 1.2):
+   - Used to calculate occupant load from floor area
+   - Examples: "Office spaces", "Sleeping non institutional", "Care and detention"
+   - 50+ different activity types
+
+2. **SM/SI Occupant Behavior Type** (Table 2.2 fire systems):
+   - Used to determine fire safety system requirements
+   - Only 4 types: permanent, transient, education, careOrDetention
+   - Derived from occupant density activity type
+
+**The mapping happens in `occupant-type-mapper.js`**
+
+#### Why Escape Routes Run Before Fire Systems
+The pipeline order is critical:
+
+1. **Occupant Loads**: Calculate how many people
+2. **Escape Routes**: Calculate how many routes and beds/occupants per route
+3. **Fire Systems**: Determine systems (Notes 1a/1b/1c need escape route data)
+
+If fire systems ran before escape routes, Note 1a/1b/1c evaluators wouldn't have the data they need.
+
+---
+
+## 📚 REFERENCES
+
+### CAS2 References
+- **Table 1.2**: Occupant density for different activity types
+- **Table 2.2**: Fire safety systems by risk group and escape height
+- **Table 2.2 Note 1a**: SM exemption for ≤10 beds per escape route
+- **Table 3.1**: Minimum number of escape routes
+- **Table 3.1a**: Minimum escape route widths
+- **Table 3.2**: Open path travel distance limits
+- **Table 3.4**: Safe path travel distance limits
+
+### Code References
+- `api/processors/fire-safety-systems/note-evaluators/note-1a-evaluator.js:31-42` - Bed count exemption logic
+- `api/validators/escape-route-validators/route-number-validator.js` - Route count lookup table
+- `api/data/data/occupant-density.js:47-48` - SM/SI occupant types
+
+---
+
+## 🔄 NEXT STEPS
+
+1. **Review this plan** with stakeholders
+2. **Get approval** to proceed
+3. **Create feature branch**: `feature/sm-note-1a-escape-routes`
+4. **Implement Phase 1** (Escape Routes Processor)
+5. **Test Phase 1** thoroughly
+6. **Implement Phase 2** (Fire Safety System Integration)
+7. **Verify Note 1a works** with integration test
+8. **Implement Phase 3** (Form Simplification)
+9. **Update all tests** (Phase 4)
+10. **Code review and merge**
+
+---
+
+**END OF PLAN**
+
+This plan represents a comprehensive solution that addresses the root cause, implements proper architecture, and ensures data integrity throughout the system. The fate of the universe is secure. ✅

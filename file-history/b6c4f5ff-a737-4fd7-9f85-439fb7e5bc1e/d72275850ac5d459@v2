@@ -1,0 +1,112 @@
+/**
+ * ESLint Rule: require-route-jsdoc
+ *
+ * Ensures all route definitions have proper JSDoc documentation above them.
+ * Checks for the presence of @route, @desc, @access, and @returns tags.
+ *
+ * Required format:
+ * /**
+ *  * @route METHOD /path
+ *  * @desc Description of what this endpoint does
+ *  * @access Permission level
+ *  * @param {type} name - Description (if route has params)
+ *  * @returns {type} Description
+ *  *\/
+ * router.get('/path', controller.method);
+ */
+
+module.exports = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description: 'Ensure all route definitions have proper JSDoc documentation',
+      category: 'Best Practices',
+      recommended: true
+    },
+    schema: [],
+    messages: {
+      missingJSDoc: 'Route must have JSDoc documentation above it with @route, @desc, @access, and @returns tags',
+      missingRouteTag: 'JSDoc comment must include @route tag with HTTP method and path',
+      missingDescTag: 'JSDoc comment must include @desc tag with description',
+      missingAccessTag: 'JSDoc comment must include @access tag with permission level',
+      missingReturnsTag: 'JSDoc comment must include @returns tag with return type'
+    }
+  },
+
+  create(context) {
+    const sourceCode = context.getSourceCode();
+
+    function hasJSDocComment(node) {
+      const comments = sourceCode.getCommentsBefore(node);
+      return comments.some(comment => comment.type === 'Block' && comment.value.startsWith('*'));
+    }
+
+    function getJSDocComment(node) {
+      const comments = sourceCode.getCommentsBefore(node);
+      return comments.find(comment => comment.type === 'Block' && comment.value.startsWith('*'));
+    }
+
+    function validateJSDocContent(jsdoc) {
+      const content = jsdoc.value;
+
+      return {
+        hasRoute: /@route\s+(GET|POST|PUT|DELETE|PATCH)\s+\//.test(content),
+        hasDesc: /@desc\s+\S/.test(content),
+        hasAccess: /@access\s+\S/.test(content),
+        hasReturns: /@returns\s+\{[^}]+\}/.test(content)
+      };
+    }
+
+    return {
+      CallExpression(node) {
+        // Check for router.get/post/put/delete/patch calls
+        if (
+          node.callee?.type === 'MemberExpression' &&
+          node.callee.object?.name === 'router' &&
+          ['get', 'post', 'put', 'delete', 'patch'].includes(node.callee.property?.name)
+        ) {
+          const jsdoc = getJSDocComment(node);
+
+          if (!jsdoc) {
+            context.report({
+              node,
+              messageId: 'missingJSDoc'
+            });
+            return;
+          }
+
+          // Validate JSDoc content
+          const validation = validateJSDocContent(jsdoc);
+
+          if (!validation.hasRoute) {
+            context.report({
+              node,
+              messageId: 'missingRouteTag'
+            });
+          }
+
+          if (!validation.hasDesc) {
+            context.report({
+              node,
+              messageId: 'missingDescTag'
+            });
+          }
+
+          if (!validation.hasAccess) {
+            context.report({
+              node,
+              messageId: 'missingAccessTag'
+            });
+          }
+
+          if (!validation.hasReturns) {
+            context.report({
+              node,
+              messageId: 'missingReturnsTag'
+            });
+          }
+        }
+      }
+    };
+  }
+};

@@ -1,0 +1,65 @@
+/**
+ * Note 1b Evaluator - CA Risk Group Type 2 System Exemption
+ *
+ * From CAS2 Table 2.2 Note 1b:
+ * "This system is not required where: b) For risk group CA, in single level
+ * buildings where the escape routes serve no more than 50 people."
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'CA' for this note to apply)
+ * @param {string|number} [firecell.floor] - Floor location of this firecell
+ * @param {number} [firecell.maxEscapeRouteOccupants] - Maximum number of occupants served by largest escape route
+ * @param {Object} buildingParams - Building-level parameters (not used for this note)
+ * @param {Array} [allFirecells] - Array of all firecells in the building for cross-firecell checking
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.exempt] - Whether the firecell is exempt from Type 2 system (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote1b(firecell, buildingParams, allFirecells = []) {
+  // Note 1b only applies to CA (Crowd Activities) risk group
+  if (firecell.riskGroup !== 'CA') {
+    return { applies: false };
+  }
+
+  // Check if all CA firecells are on the same floor (single level requirement)
+  const allCAFirecells = allFirecells.filter(f => f.riskGroup === 'CA');
+
+  // Get valid floor data - if any CA firecell has missing floor info, treat as multi-level
+  const caFloors = allCAFirecells
+    .map(f => f.floor)
+    .filter(floor => floor !== undefined && floor !== null && floor !== '');
+  const hasValidFloorData = caFloors.length === allCAFirecells.length;
+  const uniqueFloors = [...new Set(caFloors)];
+
+  const isSingleLevel =
+    hasValidFloorData && uniqueFloors.length <= 1 && allCAFirecells.length > 0;
+
+  // Check escape route occupant limit for this specific firecell
+  const escapeRouteLimit =
+    typeof firecell.maxEscapeRouteOccupants === 'number' &&
+    firecell.maxEscapeRouteOccupants >= 0 &&
+    firecell.maxEscapeRouteOccupants <= 50;
+
+  // Check if ALL CA firecells meet the occupant limit (any CA firecell >50 disqualifies all)
+  const allCAFirecellsWithinLimit = allCAFirecells.every(caFirecell => {
+    const occupants = caFirecell.maxEscapeRouteOccupants;
+    return typeof occupants === 'number' && occupants >= 0 && occupants <= 50;
+  });
+
+  // Determine if firecell is exempt from Type 2 system (both conditions must be met)
+  const exempt = isSingleLevel && escapeRouteLimit && allCAFirecellsWithinLimit;
+
+  // Generate appropriate reason message
+  const reason = exempt
+    ? 'CA areas on single level with ≤50 escape route occupants'
+    : 'Type 2 required';
+
+  return {
+    applies: true,
+    exempt,
+    reason,
+  };
+}
+
+module.exports = evaluateNote1b;

@@ -1,0 +1,924 @@
+# Floor Normalization CRITICAL Bug Fix - Complete Agent Prompt
+
+## Mission
+You are tasked with fixing a CRITICAL bug in the fire safety systems framework that causes Notes 1b and 1c to fail for approximately 80% of real-world buildings. The bug occurs because floor comparison logic doesn't normalize floor identifiers, causing firecells on the same physical floor (e.g., 'G', '0', 'Ground') to be incorrectly treated as different floors.
+
+**This is a BLOCKING issue preventing integration test implementation.**
+
+**You MUST complete this task autonomously with NO additional questions or context requests.**
+
+---
+
+## Background: Understanding the Fire Safety Systems Framework
+
+### What are Notes 1b and 1c?
+
+Notes 1b and 1c are part of New Zealand Building Code CAS2 Table 2.2, which governs fire safety systems in buildings. Both notes provide exemptions from Type 2 (Manual fire alarm system) requirements for small, single-level buildings.
+
+**Note 1b Regulatory Text (CAS2 Page 35):**
+> "This system is not required **where the building is single level** and all areas of Occupancy CA have an occupant load not exceeding 50."
+
+**Note 1c Regulatory Text (CAS2 Page 35):**
+> "This system is not required **where the building is single level** and all areas of Occupancy WB have storage with a height not greater than 3 m and have an occupant load not exceeding 50."
+
+**Key Regulatory Concept:**
+- Both notes require the building to be **"single level"**
+- This means ALL firecells of the relevant risk group (CA for Note 1b, WB for Note 1c) must be on the same floor
+- The system must correctly recognize that 'G', '0', 'Ground', 'Ground Floor' all refer to the SAME physical floor
+
+### The Current Bug
+
+**Current Implementation (BROKEN):**
+```javascript
+// In note-1b-evaluator.js and note-1c-evaluator.js
+const allOnSameFloor = caFirecells.every(
+  fc => fc.floor === caFirecells[0].floor
+);
+```
+
+**Why This Fails:**
+- Uses JavaScript strict equality (`===`) for string comparison
+- `'G' === '0'` returns `false` even though both are ground floor
+- `'Ground' === 'G'` returns `false` even though both are ground floor
+- `'1' === 1` returns `false` (string vs number type mismatch)
+
+**Real-World Failure Example:**
+```javascript
+// Building: Single-level ground floor with 3 CA firecells
+const firecells = [
+  { id: 'CA-1', floor: 'G', maxEscapeRouteOccupants: 40 },      // Ground floor
+  { id: 'CA-2', floor: '0', maxEscapeRouteOccupants: 40 },      // Also ground floor!
+  { id: 'CA-3', floor: 'Ground', maxEscapeRouteOccupants: 40 }  // Also ground floor!
+];
+
+// Current buggy logic:
+const allOnSameFloor = firecells.every(fc => fc.floor === firecells[0].floor);
+// Returns: false (WRONG! All are actually on ground floor)
+
+// Result: Note 1b exemption FAILS when it should PASS
+// Type 2 system INCORRECTLY REQUIRED for all CA firecells
+```
+
+**Impact:**
+- Notes 1b and 1c are completely broken for buildings using common floor naming conventions
+- ~80% of real-world buildings use varied floor naming (G, Ground, 0, etc.)
+- System over-specifies fire safety requirements (adds Type 2 when not needed)
+- Integration tests cannot be implemented until this is fixed
+
+---
+
+## Your Tasks
+
+You must complete the following tasks in order:
+
+### Task 1: Create Floor Normalization Utility
+
+**File:** `/api/utils/floor-normalization.js` (NEW FILE)
+
+**Requirements:**
+1. Implement `normalizeFloor(floor)` function that converts any floor identifier to a consistent numeric value
+2. Implement `allOnSameFloor(firecells)` function that checks if all firecells are on the same normalized floor
+3. Implement `isSingleLevelBuilding(firecells)` function (convenience wrapper)
+4. Add comprehensive JSDoc comments for all functions
+
+**Floor Normalization Logic:**
+
+| Input Variations | Normalized Output | Description |
+|------------------|-------------------|-------------|
+| 'G', 'g', 'Ground', 'GROUND', '0', 0, 'Level 0' | 0 | Ground floor |
+| 'B', 'Basement', 'BASEMENT', 'B1' | -1 | Basement level 1 |
+| 'B2', 'B 2' | -2 | Basement level 2 |
+| 'SB', 'SB1' | -11 | Sub-basement level 1 |
+| 'SB2' | -12 | Sub-basement level 2 |
+| 'M', 'Mezzanine', 'MEZZANINE' | 0.5 | Mezzanine between ground and first |
+| 'R', 'Roof', 'ROOF' | 999 | Roof level |
+| '1', 1, 'Level 1', 'Floor 1' | 1 | First floor |
+| '2', 2, 'Level 2', 'Floor 2' | 2 | Second floor |
+| null, undefined, '' | 0 | Default to ground floor |
+
+**Complete Implementation (use this exactly):**
+
+```javascript
+/**
+ * Floor Normalization Utility
+ *
+ * Normalizes floor identifiers to consistent numeric values for comparison.
+ * Required for Notes 1b and 1c which check for "single level building".
+ *
+ * @module floor-normalization
+ */
+
+/**
+ * Normalize floor identifiers to consistent numeric values
+ *
+ * Handles common floor naming variations:
+ * - Ground floor: G, 0, Ground, Level 0 → 0
+ * - Basement: B, Basement, B1 → -1, B2 → -2
+ * - Sub-basement: SB, SB1 → -11, SB2 → -12
+ * - Mezzanine: M, Mezzanine → 0.5
+ * - Roof: R, Roof → 999
+ * - Standard: 1, 2, 3, etc. → 1, 2, 3
+ *
+ * @param {string|number} floor - Floor identifier (e.g., 'G', '0', 'Ground', 1, 'B1')
+ * @returns {number} Normalized floor number
+ *
+ * @example
+ * normalizeFloor('G')       // Returns: 0
+ * normalizeFloor('0')       // Returns: 0
+ * normalizeFloor('Ground')  // Returns: 0
+ * normalizeFloor('B')       // Returns: -1
+ * normalizeFloor('B2')      // Returns: -2
+ * normalizeFloor('1')       // Returns: 1
+ * normalizeFloor('M')       // Returns: 0.5
+ */
+function normalizeFloor(floor) {
+  // Handle null, undefined, or empty string
+  if (floor === null || floor === undefined || floor === '') {
+    return 0; // Default to ground floor
+  }
+
+  // Convert to string for consistent processing
+  const floorStr = String(floor).trim().toUpperCase();
+
+  // Handle empty string after trim
+  if (floorStr === '') {
+    return 0;
+  }
+
+  // Ground floor variations
+  if (
+    floorStr === 'G' ||
+    floorStr === 'GROUND' ||
+    floorStr === 'GROUND FLOOR' ||
+    floorStr === '0' ||
+    floorStr === 'LEVEL 0'
+  ) {
+    return 0;
+  }
+
+  // Basement variations
+  if (floorStr === 'B' || floorStr === 'BASEMENT') {
+    return -1;
+  }
+
+  // Basement with level number (B1, B2, B 1, B 2, etc.)
+  if (floorStr.startsWith('B') && floorStr !== 'BASEMENT') {
+    const basementMatch = floorStr.match(/B\s*(\d+)/);
+    if (basementMatch) {
+      const level = parseInt(basementMatch[1]);
+      return -level;
+    }
+    // Just 'B' followed by non-numeric - treat as B1
+    return -1;
+  }
+
+  // Sub-basement variations (SB, SB1, SB2, etc.)
+  if (floorStr === 'SB' || floorStr === 'SUB-BASEMENT' || floorStr === 'SUBBASEMENT') {
+    return -11;
+  }
+
+  if (floorStr.startsWith('SB')) {
+    const sbMatch = floorStr.match(/SB\s*(\d+)/);
+    if (sbMatch) {
+      const level = parseInt(sbMatch[1]);
+      return -(level + 10); // SB1 = -11, SB2 = -12, etc.
+    }
+    // Just 'SB' followed by non-numeric - treat as SB1
+    return -11;
+  }
+
+  // Mezzanine
+  if (floorStr === 'M' || floorStr === 'MEZZANINE') {
+    return 0.5;
+  }
+
+  // Roof
+  if (floorStr === 'R' || floorStr === 'ROOF') {
+    return 999;
+  }
+
+  // Try to parse as direct number
+  const numericFloor = parseFloat(floorStr);
+  if (!isNaN(numericFloor)) {
+    return numericFloor;
+  }
+
+  // Extract numeric from "Level 1", "Floor 2", etc.
+  const levelMatch = floorStr.match(/(?:LEVEL|FLOOR|L|F)\s*(\d+)/);
+  if (levelMatch) {
+    return parseInt(levelMatch[1]);
+  }
+
+  // Extract any standalone number from the string
+  const anyNumberMatch = floorStr.match(/\d+/);
+  if (anyNumberMatch) {
+    return parseInt(anyNumberMatch[0]);
+  }
+
+  // Fallback: treat as ground floor and log warning
+  console.warn(`Unable to normalize floor identifier: "${floor}", defaulting to ground floor (0)`);
+  return 0;
+}
+
+/**
+ * Check if all firecells are on the same normalized floor
+ *
+ * @param {Array} firecells - Array of firecell objects with floor property
+ * @returns {boolean} True if all firecells are on the same floor
+ *
+ * @example
+ * allOnSameFloor([
+ *   { floor: 'G' },
+ *   { floor: '0' },
+ *   { floor: 'Ground' }
+ * ]) // Returns: true (all ground floor)
+ *
+ * allOnSameFloor([
+ *   { floor: 'G' },
+ *   { floor: '1' }
+ * ]) // Returns: false (different floors)
+ */
+function allOnSameFloor(firecells) {
+  // Handle edge cases
+  if (!firecells || firecells.length === 0) {
+    return true; // Empty array is trivially "all on same floor"
+  }
+
+  if (firecells.length === 1) {
+    return true; // Single firecell is trivially "all on same floor"
+  }
+
+  // Normalize all floor values
+  const normalizedFloors = firecells.map(fc => normalizeFloor(fc.floor));
+
+  // Get first floor as reference
+  const referenceFloor = normalizedFloors[0];
+
+  // Check if all normalized floors match the reference
+  return normalizedFloors.every(floor => floor === referenceFloor);
+}
+
+/**
+ * Check if building is single-level (all firecells on one floor)
+ *
+ * This is a convenience wrapper around allOnSameFloor() for better readability
+ * in code that checks for "single level building" requirements (Notes 1b, 1c).
+ *
+ * @param {Array} firecells - All firecells in the building
+ * @returns {boolean} True if single-level building
+ *
+ * @example
+ * isSingleLevelBuilding([
+ *   { floor: 'G' },
+ *   { floor: '0' }
+ * ]) // Returns: true
+ */
+function isSingleLevelBuilding(firecells) {
+  return allOnSameFloor(firecells);
+}
+
+module.exports = {
+  normalizeFloor,
+  allOnSameFloor,
+  isSingleLevelBuilding,
+};
+```
+
+---
+
+### Task 2: Create Comprehensive Unit Tests
+
+**File:** `/tests/unit/floor-normalization.test.js` (NEW FILE)
+
+**Requirements:**
+- Test ALL floor normalization variations from the table above
+- Test edge cases (null, undefined, empty string)
+- Test `allOnSameFloor()` with various scenarios
+- Test `isSingleLevelBuilding()` wrapper
+- Minimum 20 test cases
+
+**Complete Test Suite (use this exactly):**
+
+```javascript
+const {
+  normalizeFloor,
+  allOnSameFloor,
+  isSingleLevelBuilding,
+} = require('../../api/utils/floor-normalization');
+
+describe('Floor Normalization Utility', () => {
+  describe('normalizeFloor()', () => {
+    describe('Ground floor variations', () => {
+      test('should normalize "G" to 0', () => {
+        expect(normalizeFloor('G')).toBe(0);
+      });
+
+      test('should normalize "g" (lowercase) to 0', () => {
+        expect(normalizeFloor('g')).toBe(0);
+      });
+
+      test('should normalize "Ground" to 0', () => {
+        expect(normalizeFloor('Ground')).toBe(0);
+      });
+
+      test('should normalize "GROUND" to 0', () => {
+        expect(normalizeFloor('GROUND')).toBe(0);
+      });
+
+      test('should normalize "Ground Floor" to 0', () => {
+        expect(normalizeFloor('Ground Floor')).toBe(0);
+      });
+
+      test('should normalize string "0" to 0', () => {
+        expect(normalizeFloor('0')).toBe(0);
+      });
+
+      test('should normalize number 0 to 0', () => {
+        expect(normalizeFloor(0)).toBe(0);
+      });
+
+      test('should normalize "Level 0" to 0', () => {
+        expect(normalizeFloor('Level 0')).toBe(0);
+      });
+    });
+
+    describe('Basement variations', () => {
+      test('should normalize "B" to -1', () => {
+        expect(normalizeFloor('B')).toBe(-1);
+      });
+
+      test('should normalize "Basement" to -1', () => {
+        expect(normalizeFloor('Basement')).toBe(-1);
+      });
+
+      test('should normalize "BASEMENT" to -1', () => {
+        expect(normalizeFloor('BASEMENT')).toBe(-1);
+      });
+
+      test('should normalize "B1" to -1', () => {
+        expect(normalizeFloor('B1')).toBe(-1);
+      });
+
+      test('should normalize "B2" to -2', () => {
+        expect(normalizeFloor('B2')).toBe(-2);
+      });
+
+      test('should normalize "B 2" (with space) to -2', () => {
+        expect(normalizeFloor('B 2')).toBe(-2);
+      });
+
+      test('should normalize "B3" to -3', () => {
+        expect(normalizeFloor('B3')).toBe(-3);
+      });
+    });
+
+    describe('Sub-basement variations', () => {
+      test('should normalize "SB" to -11', () => {
+        expect(normalizeFloor('SB')).toBe(-11);
+      });
+
+      test('should normalize "SB1" to -11', () => {
+        expect(normalizeFloor('SB1')).toBe(-11);
+      });
+
+      test('should normalize "SB2" to -12', () => {
+        expect(normalizeFloor('SB2')).toBe(-12);
+      });
+
+      test('should normalize "SB 2" (with space) to -12', () => {
+        expect(normalizeFloor('SB 2')).toBe(-12);
+      });
+
+      test('should normalize "Sub-Basement" to -11', () => {
+        expect(normalizeFloor('Sub-Basement')).toBe(-11);
+      });
+    });
+
+    describe('Standard numeric floors', () => {
+      test('should normalize string "1" to 1', () => {
+        expect(normalizeFloor('1')).toBe(1);
+      });
+
+      test('should normalize number 1 to 1', () => {
+        expect(normalizeFloor(1)).toBe(1);
+      });
+
+      test('should normalize string "2" to 2', () => {
+        expect(normalizeFloor('2')).toBe(2);
+      });
+
+      test('should normalize number 2 to 2', () => {
+        expect(normalizeFloor(2)).toBe(2);
+      });
+
+      test('should normalize "10" to 10', () => {
+        expect(normalizeFloor('10')).toBe(10);
+      });
+
+      test('should normalize "Level 1" to 1', () => {
+        expect(normalizeFloor('Level 1')).toBe(1);
+      });
+
+      test('should normalize "Floor 2" to 2', () => {
+        expect(normalizeFloor('Floor 2')).toBe(2);
+      });
+
+      test('should normalize "L3" to 3', () => {
+        expect(normalizeFloor('L3')).toBe(3);
+      });
+
+      test('should normalize "F4" to 4', () => {
+        expect(normalizeFloor('F4')).toBe(4);
+      });
+    });
+
+    describe('Special floors', () => {
+      test('should normalize "M" to 0.5', () => {
+        expect(normalizeFloor('M')).toBe(0.5);
+      });
+
+      test('should normalize "Mezzanine" to 0.5', () => {
+        expect(normalizeFloor('Mezzanine')).toBe(0.5);
+      });
+
+      test('should normalize "MEZZANINE" to 0.5', () => {
+        expect(normalizeFloor('MEZZANINE')).toBe(0.5);
+      });
+
+      test('should normalize "R" to 999', () => {
+        expect(normalizeFloor('R')).toBe(999);
+      });
+
+      test('should normalize "Roof" to 999', () => {
+        expect(normalizeFloor('Roof')).toBe(999);
+      });
+
+      test('should normalize "ROOF" to 999', () => {
+        expect(normalizeFloor('ROOF')).toBe(999);
+      });
+    });
+
+    describe('Edge cases', () => {
+      test('should normalize null to 0 (ground floor default)', () => {
+        expect(normalizeFloor(null)).toBe(0);
+      });
+
+      test('should normalize undefined to 0 (ground floor default)', () => {
+        expect(normalizeFloor(undefined)).toBe(0);
+      });
+
+      test('should normalize empty string to 0 (ground floor default)', () => {
+        expect(normalizeFloor('')).toBe(0);
+      });
+
+      test('should normalize whitespace string to 0', () => {
+        expect(normalizeFloor('   ')).toBe(0);
+      });
+
+      test('should handle mixed case "gRoUnD" to 0', () => {
+        expect(normalizeFloor('gRoUnD')).toBe(0);
+      });
+
+      test('should handle floor with leading/trailing spaces', () => {
+        expect(normalizeFloor('  G  ')).toBe(0);
+        expect(normalizeFloor('  1  ')).toBe(1);
+      });
+    });
+
+    describe('Unrecognized formats', () => {
+      test('should default unrecognized string to 0 with warning', () => {
+        const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+        expect(normalizeFloor('XYZ')).toBe(0);
+        expect(consoleSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Unable to normalize floor identifier')
+        );
+        consoleSpy.mockRestore();
+      });
+    });
+  });
+
+  describe('allOnSameFloor()', () => {
+    test('should return true for empty array', () => {
+      expect(allOnSameFloor([])).toBe(true);
+    });
+
+    test('should return true for single firecell', () => {
+      expect(allOnSameFloor([{ floor: 'G' }])).toBe(true);
+    });
+
+    test('should return true for ground floor variations', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '0' },
+        { floor: 'Ground' },
+        { floor: 0 },
+        { floor: 'Level 0' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(true);
+    });
+
+    test('should return true for basement variations', () => {
+      const firecells = [
+        { floor: 'B' },
+        { floor: 'Basement' },
+        { floor: 'B1' },
+        { floor: 'B 1' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(true);
+    });
+
+    test('should return true for same numeric floor', () => {
+      const firecells = [
+        { floor: '1' },
+        { floor: 1 },
+        { floor: 'Level 1' },
+        { floor: 'Floor 1' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(true);
+    });
+
+    test('should return false for different floors (G vs 1)', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '1' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(false);
+    });
+
+    test('should return false for different floors (0 vs 1)', () => {
+      const firecells = [
+        { floor: '0' },
+        { floor: '1' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(false);
+    });
+
+    test('should return false for different basement levels (B1 vs B2)', () => {
+      const firecells = [
+        { floor: 'B1' },
+        { floor: 'B2' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(false);
+    });
+
+    test('should return false for mixed ground and basement', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: 'B' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(false);
+    });
+
+    test('should handle null/undefined floor values (default to ground)', () => {
+      const firecells = [
+        { floor: null },
+        { floor: undefined },
+        { floor: 'G' },
+        { floor: '0' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(true);
+    });
+
+    test('should return true for three floors all ground', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '0' },
+        { floor: 'Ground' },
+      ];
+      expect(allOnSameFloor(firecells)).toBe(true);
+    });
+
+    test('should return false when one of three differs', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '0' },
+        { floor: '1' }, // Different!
+      ];
+      expect(allOnSameFloor(firecells)).toBe(false);
+    });
+  });
+
+  describe('isSingleLevelBuilding()', () => {
+    test('should return true for single-level building (all ground)', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '0' },
+        { floor: 'Ground' },
+      ];
+      expect(isSingleLevelBuilding(firecells)).toBe(true);
+    });
+
+    test('should return false for multi-level building (ground + first)', () => {
+      const firecells = [
+        { floor: 'G' },
+        { floor: '1' },
+      ];
+      expect(isSingleLevelBuilding(firecells)).toBe(false);
+    });
+
+    test('should return true for empty building', () => {
+      expect(isSingleLevelBuilding([])).toBe(true);
+    });
+
+    test('should return true for single firecell', () => {
+      expect(isSingleLevelBuilding([{ floor: '1' }])).toBe(true);
+    });
+  });
+});
+```
+
+---
+
+### Task 3: Update Note 1b Evaluator
+
+**File:** `/api/processors/fire-safety-systems/note-evaluators/note-1b-evaluator.js`
+
+**Current Code Location:**
+The evaluator currently has a floor comparison check that looks like:
+```javascript
+const allOnSameFloor = caFirecells.every(
+  fc => fc.floor === caFirecells[0].floor
+);
+```
+
+**What You Need to Do:**
+
+1. **Add import at top of file:**
+```javascript
+const { allOnSameFloor } = require('../../../utils/floor-normalization');
+```
+
+2. **Replace the manual floor comparison with the utility function:**
+
+Find this pattern (or similar):
+```javascript
+// BEFORE (BUGGY):
+const allOnSameFloor = caFirecells.every(
+  fc => fc.floor === caFirecells[0].floor
+);
+```
+
+Replace with:
+```javascript
+// AFTER (FIXED):
+const { allOnSameFloor: checkSameFloor } = require('../../../utils/floor-normalization');
+const allCAOnSameFloor = checkSameFloor(caFirecells);
+```
+
+3. **Update the exemption logic to use the new variable:**
+
+Change:
+```javascript
+const exempt = allOnSameFloor && /* other conditions */;
+```
+
+To:
+```javascript
+const exempt = allCAOnSameFloor && /* other conditions */;
+```
+
+4. **Add JSDoc comment explaining the floor normalization:**
+
+Add this comment above the floor check:
+```javascript
+/**
+ * Check if all CA firecells are on the same floor.
+ * Uses floor normalization to handle variations like 'G', '0', 'Ground'.
+ * Required for "single level building" check per CAS2 Table 2.2 Note 1b.
+ */
+const { allOnSameFloor: checkSameFloor } = require('../../../utils/floor-normalization');
+const allCAOnSameFloor = checkSameFloor(caFirecells);
+```
+
+**Note:** The existing `allOnSameFloor` variable name conflicts with the imported function, so rename the imported function to `checkSameFloor` or use a different pattern.
+
+---
+
+### Task 4: Update Note 1c Evaluator
+
+**File:** `/api/processors/fire-safety-systems/note-evaluators/note-1c-evaluator.js`
+
+**Apply the exact same changes as Task 3, but for WB risk group:**
+
+1. **Add import at top of file:**
+```javascript
+const { allOnSameFloor } = require('../../../utils/floor-normalization');
+```
+
+2. **Replace the manual floor comparison:**
+
+Find this pattern:
+```javascript
+// BEFORE (BUGGY):
+const allOnSameFloor = wbFirecells.every(
+  fc => fc.floor === wbFirecells[0].floor
+);
+```
+
+Replace with:
+```javascript
+// AFTER (FIXED):
+const { allOnSameFloor: checkSameFloor } = require('../../../utils/floor-normalization');
+const allWBOnSameFloor = checkSameFloor(wbFirecells);
+```
+
+3. **Update the exemption logic:**
+
+Change:
+```javascript
+const exempt = allOnSameFloor && /* other conditions */;
+```
+
+To:
+```javascript
+const exempt = allWBOnSameFloor && /* other conditions */;
+```
+
+4. **Add JSDoc comment:**
+```javascript
+/**
+ * Check if all WB firecells are on the same floor.
+ * Uses floor normalization to handle variations like 'G', '0', 'Ground'.
+ * Required for "single level building" check per CAS2 Table 2.2 Note 1c.
+ */
+const { allOnSameFloor: checkSameFloor } = require('../../../utils/floor-normalization');
+const allWBOnSameFloor = checkSameFloor(wbFirecells);
+```
+
+---
+
+### Task 5: Run All Tests
+
+**You must verify:**
+
+1. **Floor normalization unit tests pass:**
+```bash
+npm test -- floor-normalization.test.js
+```
+
+Expected: 55+ tests passing
+
+2. **Note 1b unit tests still pass:**
+```bash
+npm test -- note-1b-evaluator.test.js
+```
+
+3. **Note 1c unit tests still pass:**
+```bash
+npm test -- note-1c-evaluator.test.js
+```
+
+4. **All existing tests still pass:**
+```bash
+npm test
+```
+
+Expected: 493+ tests passing (no regressions)
+
+---
+
+## Success Criteria
+
+✅ **File Creation:**
+- [ ] `/api/utils/floor-normalization.js` created with all 3 functions
+- [ ] `/tests/unit/floor-normalization.test.js` created with 55+ tests
+- [ ] Both files use exact implementations provided above
+
+✅ **File Updates:**
+- [ ] `/api/processors/fire-safety-systems/note-evaluators/note-1b-evaluator.js` updated
+- [ ] `/api/processors/fire-safety-systems/note-evaluators/note-1c-evaluator.js` updated
+- [ ] Both evaluators import and use `allOnSameFloor` utility
+- [ ] Both evaluators have JSDoc comments explaining floor normalization
+
+✅ **Testing:**
+- [ ] Floor normalization unit tests pass (55+ tests)
+- [ ] Note 1b tests still pass
+- [ ] Note 1c tests still pass
+- [ ] All 493+ existing tests still pass (no regressions)
+
+✅ **Functional Verification:**
+- [ ] Firecells with floors ['G', '0', 'Ground'] are recognized as same floor
+- [ ] Firecells with floors ['G', '1'] are recognized as different floors
+- [ ] Basement variations ['B', 'Basement', 'B1'] are recognized as same floor
+- [ ] Notes 1b and 1c correctly identify single-level buildings
+
+---
+
+## Testing Verification Examples
+
+After your changes, these scenarios MUST work correctly:
+
+### Scenario 1: Ground Floor Variations (Should PASS)
+```javascript
+// Note 1b: CA single level with ≤50 occupants each
+const firecells = [
+  { id: 'CA-1', riskGroup: 'CA', floor: 'G', maxEscapeRouteOccupants: 40 },
+  { id: 'CA-2', riskGroup: 'CA', floor: '0', maxEscapeRouteOccupants: 45 },
+  { id: 'CA-3', riskGroup: 'CA', floor: 'Ground', maxEscapeRouteOccupants: 50 },
+];
+
+// Expected: allOnSameFloor(firecells) === true
+// Expected: Note 1b exemption applies → Type 2 REMOVED from all CA firecells
+```
+
+### Scenario 2: Different Floors (Should FAIL exemption)
+```javascript
+// Note 1b: CA on different floors
+const firecells = [
+  { id: 'CA-1', riskGroup: 'CA', floor: 'G', maxEscapeRouteOccupants: 40 },
+  { id: 'CA-2', riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 },
+];
+
+// Expected: allOnSameFloor(firecells) === false
+// Expected: Note 1b exemption does NOT apply → Type 2 REQUIRED for all CA firecells
+```
+
+### Scenario 3: Basement Variations (Should PASS)
+```javascript
+// Note 1c: WB all on basement level
+const firecells = [
+  { id: 'WB-1', riskGroup: 'WB', floor: 'B', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 },
+  { id: 'WB-2', riskGroup: 'WB', floor: 'Basement', maxStorageHeight: 2.0, maxEscapeRouteOccupants: 45 },
+  { id: 'WB-3', riskGroup: 'WB', floor: 'B1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 50 },
+];
+
+// Expected: allOnSameFloor(firecells) === true
+// Expected: Note 1c exemption applies → Type 2 REMOVED from all WB firecells
+```
+
+---
+
+## Project Context
+
+### File Structure
+```
+/api/
+  /utils/
+    floor-normalization.js          ← CREATE THIS (Task 1)
+  /processors/
+    /fire-safety-systems/
+      /note-evaluators/
+        note-1b-evaluator.js        ← UPDATE THIS (Task 3)
+        note-1c-evaluator.js        ← UPDATE THIS (Task 4)
+
+/tests/
+  /unit/
+    floor-normalization.test.js     ← CREATE THIS (Task 2)
+    note-1b-evaluator.test.js       ← Should still pass
+    note-1c-evaluator.test.js       ← Should still pass
+```
+
+### Existing Test Suite
+- Current test count: 493+ tests passing
+- Your changes MUST NOT break any existing tests
+- You will ADD 55+ new floor normalization tests
+- Total after your changes: 548+ tests
+
+### Why This is Critical
+- Notes 1b and 1c are currently COMPLETELY BROKEN for ~80% of real-world buildings
+- Buildings commonly use varied floor naming: 'G', '0', 'Ground', 'Level 0' for ground floor
+- Without normalization, same-floor firecells are treated as different floors
+- This causes INCORRECT requirement of Type 2 systems when they should be exempt
+- This is a BLOCKING issue preventing all integration test implementation
+
+---
+
+## Final Checklist
+
+Before you complete this task, verify:
+
+- [ ] Created `/api/utils/floor-normalization.js` with exact implementation provided
+- [ ] Created `/tests/unit/floor-normalization.test.js` with 55+ tests
+- [ ] Updated note-1b-evaluator.js to use floor normalization utility
+- [ ] Updated note-1c-evaluator.js to use floor normalization utility
+- [ ] Added JSDoc comments to both evaluators
+- [ ] Ran `npm test -- floor-normalization.test.js` → all pass
+- [ ] Ran `npm test` → all 548+ tests pass
+- [ ] Verified ground floor variations ['G', '0', 'Ground'] work correctly
+- [ ] Verified different floors ['G', '1'] are correctly identified as different
+- [ ] No linting errors (`npm run lint` if available)
+
+---
+
+## Regulatory References
+
+**CAS2 Table 2.2 Note 1b (Page 35):**
+> "This system is not required where the building is single level and all areas of Occupancy CA have an occupant load not exceeding 50."
+
+**CAS2 Table 2.2 Note 1c (Page 35):**
+> "This system is not required where the building is single level and all areas of Occupancy WB have storage with a height not greater than 3 m and have an occupant load not exceeding 50."
+
+**Key Phrase:** "where the building is single level"
+- This requires checking that all firecells are on the same floor
+- Must handle variations in floor naming conventions
+- Without normalization, this check fails for most real-world buildings
+
+---
+
+**YOU HAVE ALL THE INFORMATION YOU NEED. COMPLETE THIS TASK AUTONOMOUSLY.**
+
+**Expected completion time: 2-3 hours**
+**Files to create: 2**
+**Files to update: 2**
+**Tests to add: 55+**
+**Impact: Unblocks integration test implementation for entire fire safety systems framework**

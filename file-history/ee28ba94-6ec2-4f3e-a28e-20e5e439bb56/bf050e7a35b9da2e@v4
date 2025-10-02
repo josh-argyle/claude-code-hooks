@@ -1,0 +1,40 @@
+/**
+ * Report Builder
+ * Orchestrates paragraph generation for fire safety compliance reports
+ * Calls generators in sequence and assembles complete report
+ */
+
+const { generateComplianceParagraphs: generateHazardousSubstancesCompliance } = require('./processors/hazardous-substances/compliance-generator');
+const { generateComplianceParagraphs: generateOccupantLoadCompliance } = require('./processors/occupant-load/compliance-generator');
+
+/**
+ * Build a fire safety compliance report
+ * @param {ProjectModel} projectModel - The complete project model with all calculated data
+ * @param {string} documentType - Type of document to generate (default: 'fire-report')
+ * @returns {ProjectModel} The project model with reportParagraphs array populated
+ */
+function buildReport(projectModel, documentType = 'fire-report') {
+  const paragraphs = [];
+
+  // Hazardous Substances
+  if (projectModel.storesHazardousGoods !== undefined) {
+    paragraphs.push(...generateHazardousSubstancesCompliance(projectModel));
+  }
+
+  // Occupant Load
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    paragraphs.push(...generateOccupantLoadCompliance(projectModel));
+  }
+
+  // TODO: Add more generators as they are implemented
+  // - Fire Safety Systems
+  // - Firecells
+  // - Fire Resistance (already exists, needs integration)
+
+  // Store paragraphs in project model
+  projectModel.reportParagraphs = paragraphs;
+
+  return projectModel;
+}
+
+module.exports = { buildReport };

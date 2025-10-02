@@ -1,0 +1,1821 @@
+extends layout
+include includes/nav-tabs
+include includes/floating-input
+include includes/search-select
+
+block head
+  link(rel="stylesheet", href=`/css/enhanced-tables.css?v=${appVersion}`)
+  style.
+    .timesheet-container {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: var(--spacing-lg);
+    }
+    
+    .timesheet-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--spacing-xl);
+      padding-bottom: var(--spacing-md);
+      border-bottom: var(--border-width-thin) solid var(--border-color);
+    }
+    
+    .timesheet-title h1 {
+      margin: 0;
+      color: var(--primary);
+      font-size: var(--font-size-xl);
+      font-weight: 600;
+    }
+    
+    .team-selection {
+      background: white;
+      border-radius: var(--border-radius-md);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: var(--spacing-lg);
+      overflow: hidden;
+      display: none;
+    }
+    
+    .team-selection.active {
+      display: block;
+    }
+    
+    .selected-team {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: var(--spacing-lg);
+      background: var(--bg-subtle);
+      border-bottom: var(--border-width-thin) solid var(--border-color);
+    }
+    
+    .selected-staff {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+      flex-wrap: wrap;
+    }
+    
+    .selected-employees {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .selected-name {
+      background: var(--primary);
+      color: white;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--border-radius-sm);
+      font-size: var(--font-size-sm);
+      font-weight: 500;
+    }
+    
+    .employee-selector {
+      padding: var(--spacing-lg);
+      display: none;
+    }
+    
+    .employee-selector.active {
+      display: block;
+    }
+    
+    .selector-actions {
+      display: flex;
+      gap: var(--spacing-sm);
+      margin-bottom: var(--spacing-md);
+    }
+    
+    .employee-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: var(--spacing-sm);
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .employee-item {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-sm);
+      border: var(--border-width-thin) solid var(--border-color);
+      border-radius: var(--border-radius-sm);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .employee-item:hover {
+      background: var(--bg-hover);
+    }
+    
+    .employee-item.selected {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+    }
+    
+    .day-navigation {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-lg);
+      margin-bottom: var(--spacing-xl);
+      padding: var(--spacing-lg);
+      background: white;
+      border-radius: var(--border-radius-md);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .day-display {
+      text-align: center;
+      width: 93px;
+    }
+    
+    .day-display h2 {
+      margin: 0;
+      color: var(--primary);
+      font-size: var(--font-size-lg);
+      font-weight: 600;
+    }
+    
+    .date-display {
+      color: var(--text-secondary);
+      font-size: var(--font-size-sm);
+      margin-top: var(--spacing-xs);
+    }
+    
+    .entry-form {
+      background: white;
+      border-radius: var(--border-radius-md);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: var(--spacing-xl);
+      margin-bottom: var(--spacing-xl);
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .form-group {
+      margin-bottom: var(--spacing-lg);
+    }
+    
+    .time-format-display {
+      margin-top: var(--spacing-xs);
+      color: var(--text-secondary);
+      font-size: var(--font-size-sm);
+    }
+    
+    .entries-section {
+      background: white;
+      border-radius: var(--border-radius-md);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: var(--spacing-xl);
+      margin-bottom: var(--spacing-xl);
+    }
+    
+    .entries-section h3 {
+      margin: 0 0 var(--spacing-lg) 0;
+      color: var(--primary);
+      font-size: var(--font-size-lg);
+      font-weight: 600;
+    }
+    
+    .no-entries {
+      text-align: center;
+      color: var(--text-secondary);
+      font-style: italic;
+      padding: var(--spacing-xl);
+    }
+    
+    .entries-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-md);
+    }
+    
+    .time-entry {
+      border: var(--border-width-thin) solid var(--border-color);
+      border-radius: var(--border-radius-md);
+      padding: var(--spacing-lg);
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    
+    .time-entry:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .entry-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    
+    .entry-header {
+      flex: 1;
+    }
+    
+    .project-info {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+      flex-wrap: wrap;
+    }
+    
+    .project-number {
+      font-weight: 600;
+      color: var(--primary);
+    }
+    
+    .work-center {
+      color: var(--text-secondary);
+      font-size: var(--font-size-sm);
+    }
+    
+    .time-info {
+      background: var(--bg-secondary);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--border-radius-sm);
+      font-weight: 500;
+      color: var(--primary);
+    }
+    
+    .time-info.editable {
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    
+    .time-info.editable:hover {
+      background: var(--hover-bg);
+    }
+    
+    .edit-hours-input {
+      background: white;
+      border: var(--border-width-thin) solid var(--primary);
+      border-radius: var(--border-radius-sm);
+      padding: var(--spacing-xs) var(--spacing-sm);
+      font-weight: 500;
+      color: var(--primary);
+      width: 80px;
+    }
+    
+    .entry-employee {
+      color: var(--text-secondary);
+      font-size: var(--font-size-sm);
+      margin-top: var(--spacing-xs);
+    }
+
+    .employee-group-header {
+      background: var(--bg-subtle);
+      padding: var(--spacing-sm) var(--spacing-md);
+      margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+      border-radius: var(--border-radius-sm);
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .employee-group-header:first-child {
+      margin-top: 0;
+    }
+
+    .employee-hours-total {
+      font-size: var(--font-size-sm);
+      background: var(--primary);
+      color: white;
+      padding: var(--spacing-xs) var(--spacing-sm);
+      border-radius: var(--border-radius-sm);
+    }
+    
+    .day-summary {
+      background: white;
+      border-radius: var(--border-radius-md);
+      padding: var(--spacing-xl);
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      border: var(--border-width-thin) solid var(--border-color);
+    }
+
+    .total-display {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--spacing-sm);
+    }
+
+    .total-hours-label {
+      font-size: var(--font-size-sm);
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 500;
+    }
+
+    .total-hours {
+      font-size: var(--font-size-xl);
+      font-weight: 700;
+      color: var(--primary);
+      transition: color 0.3s ease;
+    }
+
+    .total-hours.warning {
+      color: var(--error);
+    }
+
+    .hours-warning {
+      display: none;
+      margin-top: var(--spacing-sm);
+      padding: var(--spacing-sm) var(--spacing-md);
+      background: var(--error-bg);
+      color: var(--error);
+      border-radius: var(--border-radius-sm);
+      font-size: var(--font-size-sm);
+      font-weight: 500;
+      border: var(--border-width-thin) solid var(--error);
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-xs);
+    }
+
+    .hours-warning.active {
+      display: flex;
+    }
+
+    .hours-warning svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    
+    .loading-indicator-entries {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--spacing-xl);
+      color: var(--text-secondary);
+    }
+    
+    
+    .loading-employees {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-lg);
+      color: var(--text-secondary);
+    }
+    
+    /* Optimistic update styles */
+    .optimistic-entry {
+      opacity: 0.7;
+      transition: opacity 0.3s ease;
+    }
+
+    .optimistic-indicator {
+      margin-left: var(--spacing-xs);
+      color: var(--primary);
+      animation: var(--animation-duration-spin) linear infinite;
+      animation-name: spin;
+      display: inline-flex;
+      align-items: center;
+      vertical-align: middle;
+    }
+
+    .optimistic-indicator svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .btn-icon:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Mobile styles */
+    @media (max-width: 768px) {
+      .timesheet-container {
+        padding: 0;
+      }
+    }
+
+block pageHeader
+  .page-header
+    h1.page-title Daily Timesheet
+    .page-actions
+      +nav-tabs-enhanced([
+        {text: 'Daily Timesheet', active: true},
+        {text: 'History', href: '/timesheets/history'}
+      ])
+
+block content
+  .timesheet-container
+    .timesheet-title
+      h1 Daily Timesheet
+      .mode-toggle#mode-toggle
+        button.btn.btn-primary#mode-toggle-btn.hidden
+          svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+            path(d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2")
+            circle(cx="9" cy="7" r="4")
+            path(d="m22 21-2-2")
+            path(d="m16 16 2 2")
+          | Personal Mode
+    
+    .team-selection#team-selection
+      .selected-team
+        .selected-staff
+          span Entering for:
+          .selected-employees#selected-employees
+            span No one selected
+        button.btn.btn-secondary#select-team-btn
+          svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+            path(d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2")
+            circle(cx="9" cy="7" r="4")
+            path(d="m22 21-2-2")
+            path(d="m16 16 2 2")
+          | Select Employees
+      .employee-selector#employee-selector
+        .selector-actions
+          button.btn.btn-sm#select-all-btn
+            svg(xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+              path(d="m9 12 2 2 4-4")
+              path(d="M21 12c.552 0 1-.448 1-1V5c0-.552-.448-1-1-1H3c-.552 0-1 .448-1 1v6c0 .552.448 1 1 1")
+              path(d="M3 10v6c0 .552.448 1 1 1h16c.552 0 1-.448 1-1v-6")
+            | Select All
+          button.btn.btn-sm#clear-all-btn
+            svg(xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+              path(d="M18 6 6 18")
+              path(d="m6 6 12 12")
+            | Clear
+        .employee-list#employee-list
+          .loading-employees
+            .loading-spinner
+
+    .day-navigation
+      button.btn.btn-primary#prev-day-btn
+        svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+          path(d="m15 18-6-6 6-6")
+      .day-display
+        h2#day-name Monday
+        .date-display#date-display 22 Jul
+      button.btn.btn-primary#next-day-btn
+        svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+          path(d="m9 18 6-6-6-6")
+
+    .entry-form#entry-form
+      .form-group
+        +search-select({
+          name: 'project-search',
+          placeholder: 'Start typing to search projects',
+          required: true,
+          id: 'project-search',
+          datalistId: 'project-search-datalist'
+        })
+
+      .form-group
+        +floating-input({
+          type: 'select',
+          name: 'work-centre',
+          placeholder: 'Select Work Centre',
+          disabled: true,
+          id: 'work-centre'
+        })
+          option(value="") Select Work Centre
+
+      .form-group
+        +floating-input({
+          type: 'text',
+          name: 'hours',
+          placeholder: 'Hours (e.g. 7.50)',
+          id: 'hours'
+        })
+        .time-format-display#time-format-display
+
+      button.btn.btn-primary#add-entry-btn(disabled)
+        svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+          path(d="M5 12h14")
+          path(d="m12 5 7 7-7 7")
+        | Add Entry
+
+    .entries-section
+      .loading-indicator-entries#loading-indicator
+        .loading-spinner
+      div#entries-content.hidden
+        h3#entries-title Entries for Today
+        .no-entries#no-entries.hidden No entries for this day
+        .entries-list#entries-list
+
+    .day-summary#day-summary.hidden
+      .total-display
+        span.total-hours-label Total Hours
+        span.total-hours#total-hours 0h
+        .hours-warning#hours-warning
+          +icon('alert-triangle')
+          | Too many hours for one day!
+
+  // Datalist elements for search-select components
+  datalist#project-search-datalist
+
+  script.
+    // Pass server data to JavaScript
+    window.projectData = !{JSON.stringify(projects || [])};
+    window.loggedInAccountId = !{JSON.stringify(userId || null)};
+    window.currentUserName = !{JSON.stringify(userName || 'Me')};
+    window.selectedDate = !{JSON.stringify(selectedDate || null)};
+    window.staff = !{JSON.stringify(staff || [])};
+    window.isForeman = !{JSON.stringify((roles || []).includes('foreman') || (roles || []).includes('project_manager') || (roles || []).includes('admin'))};
+
+    // Global state management
+    const timesheetState = {
+      currentDate: new Date(),
+      isTeamMode: false,
+      selectedEmployees: [],
+      entries: [],
+      userTimesheets: [],
+      daySubmitted: false,
+      isLoadingEntries: false,
+      isLoadingEmployees: false,
+      isSaving: false,
+      isDeletingEntry: null,
+      editingEntryId: null,
+      originalHoursBackup: null,
+      projectData: window.projectData || [],
+      employees: window.staff || [],
+      selectedProject: null,
+      workCentreOptions: []
+    };
+
+    // Helper functions
+    function parseDateString(dateString) {
+      if (!dateString) return new Date();
+      const parts = dateString.split('/');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (year < 100) {
+          year += 2000;
+        }
+        const d = new Date(year, month, day);
+        if (d.getFullYear() === year && d.getMonth() === month && d.getDate() === day) {
+          return d;
+        }
+      }
+      return new Date();
+    }
+
+    function formatDateForDisplay(date) {
+      if (!date) return '';
+      // Using DateUtils.formatNZDate for consistency, though format is slightly different
+      return DateUtils.formatNZDate(date);
+    }
+
+    function formatDateForSubmission(date) {
+      return DateUtils.formatDateForAPI(date);
+    }
+
+    function formatShortDate(date) {
+      return DateUtils.formatShortDate(date);
+    }
+
+    function getDayName(date) {
+      return DateUtils.formatDayName(date);
+    }
+
+    function convertToHoursMinutes(decimalHours, useParens = true) {
+      const numHours = parseFloat(decimalHours);
+      if (isNaN(numHours)) return useParens ? '(0h)' : '0h';
+
+      const hours = Math.floor(numHours);
+      let minutes = Math.round((numHours - hours) * 60);
+
+      if (minutes === 60) {
+        minutes = 0;
+        const displayHours = hours + 1;
+        const format = `${displayHours} hour${displayHours !== 1 ? 's' : ''}`;
+        return useParens ? `(${format})` : format;
+      }
+
+      let format = '';
+      if (hours > 0) {
+        format += `${hours} hour${hours !== 1 ? 's' : ''}`;
+      }
+
+      if (minutes > 0) {
+        if (hours > 0) format += ' ';
+        format += `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+      }
+
+      if (format === '') {
+        format = '0 hours';
+      }
+
+      return useParens ? `(${format})` : format;
+    }
+
+    function formatTimeValue(value) {
+      if (value === null || value === undefined) return '';
+      let stringValue = String(value).trim();
+      if (stringValue === '') return '';
+      let cleanValue = stringValue.replace(/[^\d.]/g, '');
+      const parts = cleanValue.split('.');
+      if (parts.length > 2) cleanValue = parts[0] + '.' + parts.slice(1).join('');
+      if (cleanValue === '' || cleanValue === '.') return '';
+      const numericValue = parseFloat(cleanValue);
+      if (isNaN(numericValue) || numericValue < 0) return '';
+      return (Math.round(numericValue / 0.25) * 0.25).toFixed(2);
+    }
+
+    function getEmployeeName(employeeId) {
+      const employee = timesheetState.employees.find(emp => String(emp.user_id) === String(employeeId));
+      return employee ? employee.full_name : `User ID: ${employeeId}`;
+    }
+
+    function calculateDailyHours(employeeId) {
+      // Calculate total hours for a specific employee on the current day
+      // Include both saved entries and optimistic (pending) entries
+      return timesheetState.entries
+        .filter(entry => String(entry.employee_id) === String(employeeId))
+        .reduce((total, entry) => total + (parseFloat(entry.hours) || 0), 0);
+    }
+
+    function validateDailyLimit(newHours, employeeIds) {
+      // Check if adding newHours would exceed 24 hours for any employee
+      const hoursToAdd = parseFloat(newHours);
+      if (isNaN(hoursToAdd) || hoursToAdd <= 0) {
+        return { valid: false, reason: 'Invalid hours value' };
+      }
+
+      for (const employeeId of employeeIds) {
+        const currentHours = calculateDailyHours(employeeId);
+        const totalAfterAdd = currentHours + hoursToAdd;
+
+        if (totalAfterAdd > 24) {
+          const employeeName = getEmployeeName(employeeId);
+          const remainingHours = Math.max(0, 24 - currentHours);
+          return {
+            valid: false,
+            reason: `Adding ${hoursToAdd} hours would exceed 24-hour daily limit for ${employeeName}. Current: ${currentHours.toFixed(2)}h, Maximum additional: ${remainingHours.toFixed(2)}h`
+          };
+        }
+      }
+
+      return { valid: true };
+    }
+
+    // DOM update functions
+    function updateDateDisplay() {
+      document.getElementById('day-name').textContent = getDayName(timesheetState.currentDate);
+      document.getElementById('date-display').textContent = formatShortDate(timesheetState.currentDate);
+    }
+
+    function updateModeToggle() {
+      const modeToggleBtn = document.getElementById('mode-toggle-btn');
+      const teamSelection = document.getElementById('team-selection');
+      const daySummary = document.getElementById('day-summary');
+
+      if (window.isForeman) {
+        modeToggleBtn.classList.remove('hidden');
+        
+        if (timesheetState.isTeamMode) {
+          modeToggleBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="m22 21-2-2"></path>
+              <path d="m16 16 2 2"></path>
+            </svg>
+            Team Mode
+          `;
+          teamSelection.classList.add('active');
+          daySummary.classList.add('hidden');
+        } else {
+          modeToggleBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            Personal Mode
+          `;
+          teamSelection.classList.remove('active');
+          if (timesheetState.entries.length > 0) {
+            daySummary.classList.remove('hidden');
+          }
+        }
+      }
+    }
+
+    function updateSelectedEmployees() {
+      const container = document.getElementById('selected-employees');
+      if (timesheetState.selectedEmployees.length === 0) {
+        container.innerHTML = '<span>No one selected</span>';
+      } else {
+        container.innerHTML = timesheetState.selectedEmployees.map(emp => 
+          `<span class="selected-name">${emp.name}</span>`
+        ).join('');
+      }
+    }
+
+    // Optimistic update helper functions
+    function createOptimisticEntry(employee, projectCode, projectDescription, workCentre, hours, entryDate) {
+      return {
+        id: `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        project_code: projectCode,
+        project_description: projectDescription,
+        work_centre: workCentre,
+        hours: parseFloat(hours),
+        employee_id: employee.id,
+        employee_name: employee.name,
+        entry_date: entryDate,
+        _optimistic: true,
+        _optimisticType: 'add'
+      };
+    }
+
+    function addOptimisticEntries(newEntries) {
+      timesheetState.entries.push(...newEntries);
+      renderEntries();
+    }
+
+    function removeOptimisticEntries(entriesToRemove) {
+      entriesToRemove.forEach(entryToRemove => {
+        const index = timesheetState.entries.findIndex(e => e.id === entryToRemove.id);
+        if (index !== -1) {
+          timesheetState.entries.splice(index, 1);
+        }
+      });
+      renderEntries();
+    }
+
+    function updateOptimisticEntry(entryId, updates) {
+      const entry = timesheetState.entries.find(e => e.id === entryId);
+      if (entry) {
+        Object.assign(entry, updates);
+        entry._optimistic = true;
+        entry._optimisticType = 'edit';
+        renderEntries();
+      }
+      return entry;
+    }
+
+    function removeOptimisticEntry(entryId) {
+      const entryIndex = timesheetState.entries.findIndex(e => e.id === entryId);
+      if (entryIndex !== -1) {
+        const entry = timesheetState.entries.splice(entryIndex, 1)[0];
+        renderEntries();
+        return { entry, index: entryIndex };
+      }
+      return null;
+    }
+
+    function restoreEntry(entry, index) {
+      timesheetState.entries.splice(index, 0, entry);
+      renderEntries();
+    }
+
+    function updateOptimisticEntryId(tempId, realId) {
+      const entry = timesheetState.entries.find(e => e.id === tempId);
+      if (entry) {
+        entry.id = realId;
+        renderEntries();
+      }
+    }
+
+    function clearOptimisticFlags(entryId) {
+      const entry = timesheetState.entries.find(e => e.id === entryId);
+      if (entry) {
+        delete entry._optimistic;
+        delete entry._optimisticType;
+        renderEntries();
+      }
+    }
+
+    function clearForm() {
+      document.getElementById('project-search').value = '';
+      const workCentreSelect = document.getElementById('work-centre');
+      workCentreSelect.innerHTML = '<option value="">Select Work Centre</option>';
+      workCentreSelect.disabled = true;
+      document.getElementById('hours').value = '';
+      document.getElementById('time-format-display').textContent = '';
+      timesheetState.selectedProject = null;
+    }
+
+    function renderEmployeeList() {
+      const container = document.getElementById('employee-list');
+      
+      logger.debug('renderEmployeeList called:', {
+        isLoadingEmployees: timesheetState.isLoadingEmployees,
+        employeesCount: timesheetState.employees.length,
+        employees: timesheetState.employees
+      });
+      
+      if (timesheetState.isLoadingEmployees) {
+        container.innerHTML = `
+          <div class="loading-employees">
+            <div class="loading-spinner"></div>
+          </div>
+        `;
+        return;
+      }
+
+      if (timesheetState.employees.length === 0) {
+        container.innerHTML = `
+          <div class="loading-employees">
+            <span>No employees available</span>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = timesheetState.employees.map(employee => `
+        <div class="employee-item ${isEmployeeSelected(employee) ? 'selected' : ''}" data-employee-id="${employee.user_id}">
+          <input type="checkbox" ${isEmployeeSelected(employee) ? 'checked' : ''}>
+          <span>${employee.full_name}</span>
+        </div>
+      `).join('');
+
+      // Add event listeners to employee items
+      container.querySelectorAll('.employee-item').forEach(item => {
+        item.addEventListener('click', function() {
+          const employeeId = this.getAttribute('data-employee-id');
+          const employee = timesheetState.employees.find(emp => String(emp.user_id) === employeeId);
+          if (employee) {
+            selectEmployee(employee);
+          }
+        });
+      });
+    }
+
+    function isEmployeeSelected(employee) {
+      return timesheetState.selectedEmployees.some(e => e.id === employee.user_id);
+    }
+
+    function selectEmployee(employee) {
+      const employeeData = { id: employee.user_id, name: employee.full_name };
+      const index = timesheetState.selectedEmployees.findIndex(e => e.id === employeeData.id);
+      if (index === -1) {
+        timesheetState.selectedEmployees.push(employeeData);
+      } else {
+        timesheetState.selectedEmployees.splice(index, 1);
+      }
+      updateSelectedEmployees();
+      renderEmployeeList();
+      loadEntriesForDay();
+    }
+
+
+    function selectProject(project) {
+      timesheetState.selectedProject = project;
+      document.getElementById('project-search').value = `${project.project_code} - ${project.description}`;
+
+      // Load work centres dynamically from Workbench API
+      loadWorkCentres(project.project_code);
+    }
+
+    async function loadWorkCentres(projectCode) {
+      const workCentreSelect = document.getElementById('work-centre');
+      
+      // Show loading state
+      workCentreSelect.innerHTML = '<option value="">Loading work centres...</option>';
+      workCentreSelect.disabled = true;
+      
+      try {
+        // Get the appropriate staff ID for the API call
+        let staffId = window.loggedInAccountId;
+        if (timesheetState.isTeamMode && timesheetState.selectedEmployees.length > 0) {
+          // In team mode, use the first selected employee for work centre lookup
+          staffId = timesheetState.selectedEmployees[0].id;
+        }
+
+        const url = `/api/timesheets/work-centres?project_code=${encodeURIComponent(projectCode)}&staff_id=${staffId}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          if (errorData.error === 'no_workbench_mapping') {
+            throw new Error('Account not connected to Workbench');
+          }
+          throw new Error(errorData.message || 'Failed to load work centres');
+        }
+
+        const workCentres = await response.json();
+        timesheetState.workCentreOptions = workCentres;
+
+        // Update dropdown with fetched work centres
+        if (workCentres.length > 0) {
+          workCentreSelect.innerHTML = '<option value="">Select Work Centre</option>' +
+            workCentres.map(option => 
+              `<option value="${option.work_centre}">${option.work_centre} - ${option.description}</option>`
+            ).join('');
+          workCentreSelect.disabled = false;
+        } else {
+          workCentreSelect.innerHTML = '<option value="">No work centres available</option>';
+          workCentreSelect.disabled = true;
+        }
+      } catch (error) {
+        logger.error('Error loading work centres:', error);
+        workCentreSelect.innerHTML = '<option value="">Error loading work centres</option>';
+        workCentreSelect.disabled = true;
+        
+        if (error.message.includes('Workbench')) {
+          showNotification('Unable to load work centres: ' + error.message, 'error');
+        }
+      }
+
+      updateAddButtonState();
+    }
+
+    function renderEntries() {
+      const loadingIndicator = document.getElementById('loading-indicator');
+      const entriesContent = document.getElementById('entries-content');
+      const noEntries = document.getElementById('no-entries');
+      const entriesList = document.getElementById('entries-list');
+      const entriesTitle = document.getElementById('entries-title');
+      const totalHours = document.getElementById('total-hours');
+      const daySummary = document.getElementById('day-summary');
+
+      if (timesheetState.isLoadingEntries) {
+        loadingIndicator.classList.remove('hidden');
+        entriesContent.classList.add('hidden');
+        return;
+      }
+
+      loadingIndicator.classList.add('hidden');
+      entriesContent.classList.remove('hidden');
+
+      if (timesheetState.entries.length === 0) {
+        noEntries.classList.remove('hidden');
+        entriesList.classList.add('hidden');
+        entriesTitle.classList.add('hidden');
+        daySummary.classList.add('hidden');
+      } else {
+        noEntries.classList.add('hidden');
+        entriesList.classList.remove('hidden');
+        entriesTitle.classList.remove('hidden');
+        entriesTitle.textContent = `Entries for ${getDayName(timesheetState.currentDate)}`;
+
+        // Group entries by employee in team mode
+        let entriesHTML = '';
+
+        if (timesheetState.isTeamMode) {
+          // Group entries by employee
+          const entriesByEmployee = {};
+          timesheetState.entries.forEach(entry => {
+            const employeeKey = entry.employee_id || 'unknown';
+            if (!entriesByEmployee[employeeKey]) {
+              entriesByEmployee[employeeKey] = {
+                name: entry.employee_name || getEmployeeName(employeeKey),
+                entries: [],
+                totalHours: 0
+              };
+            }
+            entriesByEmployee[employeeKey].entries.push(entry);
+            entriesByEmployee[employeeKey].totalHours += parseFloat(entry.hours) || 0;
+          });
+
+          // Sort employees by name
+          const sortedEmployees = Object.keys(entriesByEmployee).sort((a, b) => {
+            const nameA = entriesByEmployee[a].name.toLowerCase();
+            const nameB = entriesByEmployee[b].name.toLowerCase();
+            return nameA.localeCompare(nameB);
+          });
+
+          // Render grouped entries
+          sortedEmployees.forEach(employeeId => {
+            const group = entriesByEmployee[employeeId];
+
+            // Add employee header
+            entriesHTML += `
+              <div class="employee-group-header">
+                <span>${group.name}</span>
+                <span class="employee-hours-total">${group.totalHours.toFixed(2)}h</span>
+              </div>
+            `;
+
+            // Add entries for this employee
+            group.entries.forEach(entry => {
+              entriesHTML += `
+                <div class="time-entry ${entry._optimistic ? 'optimistic-entry' : ''}" data-entry-id="${entry.id}">
+                  <div class="entry-content">
+                    <div class="entry-header">
+                      <div class="project-info">
+                        <span class="project-number">${entry.project_description || entry.project_code}</span>
+                        <span class="work-center">${entry.activity_code || entry.work_centre}</span>
+                        <span class="time-info editable" data-entry-id="${entry.id}">
+                          ${convertToHoursMinutes(entry.hours, false)}
+                          ${entry._optimistic ? `<span class="optimistic-indicator" title="Saving...">${Icons.getIcon('loader-2')}</span>` : ''}
+                        </span>
+                      </div>
+                    </div>
+                    <button class="btn-icon" data-entry-id="${entry.id}" title="Delete entry" ${entry._optimistic ? 'disabled' : ''}>
+                      ${Icons.getIcon('trash-2')}
+                    </button>
+                  </div>
+                </div>
+              `;
+            });
+          });
+        } else {
+          // Personal mode - render entries normally
+          entriesHTML = timesheetState.entries.map(entry => `
+            <div class="time-entry ${entry._optimistic ? 'optimistic-entry' : ''}" data-entry-id="${entry.id}">
+              <div class="entry-content">
+                <div class="entry-header">
+                  <div class="project-info">
+                    <span class="project-number">${entry.project_description || entry.project_code}</span>
+                    <span class="work-center">${entry.activity_code || entry.work_centre}</span>
+                    <span class="time-info editable" data-entry-id="${entry.id}">
+                      ${convertToHoursMinutes(entry.hours, false)}
+                      ${entry._optimistic ? `<span class="optimistic-indicator" title="Saving...">${Icons.getIcon('loader-2')}</span>` : ''}
+                    </span>
+                  </div>
+                </div>
+                <button class="btn-icon" data-entry-id="${entry.id}" title="Delete entry" ${entry._optimistic ? 'disabled' : ''}>
+                  ${Icons.getIcon('trash-2')}
+                </button>
+              </div>
+            </div>
+          `).join('');
+        }
+
+        entriesList.innerHTML = entriesHTML;
+
+        // Add event listeners to entries
+        entriesList.querySelectorAll('.btn-icon').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const entryId = this.getAttribute('data-entry-id');
+            deleteEntry(entryId);
+          });
+        });
+
+        entriesList.querySelectorAll('.time-info.editable').forEach(span => {
+          span.addEventListener('click', function() {
+            const entryId = this.getAttribute('data-entry-id');
+            startEditing(entryId);
+          });
+        });
+
+        // Update total hours with warning logic
+        const hoursWarning = document.getElementById('hours-warning');
+
+        if (timesheetState.isTeamMode) {
+          // In team mode, show total for all selected employees
+          const total = timesheetState.entries.reduce((sum, entry) => sum + (parseFloat(entry.hours) || 0), 0);
+          totalHours.textContent = convertToHoursMinutes(total, false);
+
+          // Check if any individual employee exceeds 24 hours
+          let hasWarning = false;
+          for (const employee of timesheetState.selectedEmployees) {
+            const employeeTotal = calculateDailyHours(employee.id);
+            if (employeeTotal > 24) {
+              hasWarning = true;
+              break;
+            }
+          }
+
+          if (hasWarning) {
+            totalHours.classList.add('warning');
+            hoursWarning.classList.add('active');
+          } else {
+            totalHours.classList.remove('warning');
+            hoursWarning.classList.remove('active');
+          }
+
+          // Show summary in team mode too
+          daySummary.classList.remove('hidden');
+        } else {
+          // Personal mode - calculate total for current user only
+          const currentUserId = window.loggedInAccountId;
+          const total = currentUserId ? calculateDailyHours(currentUserId) : 0;
+          totalHours.textContent = convertToHoursMinutes(total, false);
+
+          if (total > 24) {
+            totalHours.classList.add('warning');
+            hoursWarning.classList.add('active');
+          } else {
+            totalHours.classList.remove('warning');
+            hoursWarning.classList.remove('active');
+          }
+
+          daySummary.classList.remove('hidden');
+        }
+      }
+    }
+
+    function updateAddButtonState() {
+      const addBtn = document.getElementById('add-entry-btn');
+      const projectSearch = document.getElementById('project-search');
+      const workCentre = document.getElementById('work-centre');
+      const hours = document.getElementById('hours');
+
+      // Basic validation
+      const isValidForm = timesheetState.selectedProject &&
+                         workCentre.value &&
+                         hours.value &&
+                         parseFloat(hours.value) > 0;
+
+      // Check daily limit if form is valid
+      let isWithinDailyLimit = true;
+      if (isValidForm && hours.value) {
+        let employeesToCheck = [];
+        if (timesheetState.isTeamMode) {
+          employeesToCheck = timesheetState.selectedEmployees.map(e => e.id);
+        } else if (window.loggedInAccountId) {
+          employeesToCheck = [window.loggedInAccountId];
+        }
+
+        if (employeesToCheck.length > 0) {
+          const validation = validateDailyLimit(hours.value, employeesToCheck);
+          isWithinDailyLimit = validation.valid;
+        }
+      }
+
+      addBtn.disabled = !isValidForm || !isWithinDailyLimit || timesheetState.isSaving;
+    }
+
+    // API functions
+    async function loadEntriesForDay() {
+      timesheetState.isLoadingEntries = true;
+      renderEntries();
+
+      try {
+        let staffIdsToQuery = [];
+        if (timesheetState.isTeamMode) {
+          if (timesheetState.selectedEmployees.length > 0) {
+            staffIdsToQuery = timesheetState.selectedEmployees.map(e => e.id);
+          } else {
+            timesheetState.entries = [];
+            timesheetState.isLoadingEntries = false;
+            renderEntries();
+            return;
+          }
+        } else {
+          if (window.loggedInAccountId) {
+            staffIdsToQuery = [window.loggedInAccountId];
+          } else {
+            timesheetState.entries = [];
+            timesheetState.isLoadingEntries = false;
+            renderEntries();
+            return;
+          }
+        }
+
+        const dateStr = formatDateForSubmission(timesheetState.currentDate);
+        const url = `/api/timesheets/entries?date=${dateStr}&staff_ids=${staffIdsToQuery.join(',')}`;
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          const errorData = await response.json();
+          if (errorData.error === 'no_workbench_mapping') {
+            throw new Error('Your account isn\'t set up to connect to Workbench and needs to be connected');
+          }
+          throw new Error(errorData.message || 'Failed to load entries');
+        }
+
+        const data = await response.json();
+        timesheetState.entries = [];
+        
+        if (data.entries && Array.isArray(data.entries)) {
+          data.entries.forEach(userEntryData => {
+            const employeeName = getEmployeeName(userEntryData.id);
+            userEntryData.entries.forEach(entry => {
+              timesheetState.entries.push({
+                ...entry,
+                hours: parseFloat(entry.hours) || 0,
+                employee_id: userEntryData.id,
+                employee_name: employeeName
+              });
+            });
+          });
+        }
+
+        timesheetState.daySubmitted = data.completed || false;
+      } catch (error) {
+        logger.error('Error loading entries:', error);
+        timesheetState.entries = [];
+        if (error.message.includes('Workbench')) {
+          showNotification(error.message, 'error');
+        }
+      } finally {
+        timesheetState.isLoadingEntries = false;
+        renderEntries();
+      }
+    }
+
+    async function addEntry() {
+      if (timesheetState.isSaving) return;
+
+      // Immediately disable button and set saving state to prevent double-clicks
+      timesheetState.isSaving = true;
+      updateAddButtonState();
+
+      const hoursInput = document.getElementById('hours');
+      const workCentreSelect = document.getElementById('work-centre');
+
+      const hours = parseFloat(hoursInput.value);
+      if (!timesheetState.selectedProject || !workCentreSelect.value || !hours || hours <= 0) {
+        showNotification('Project, Work Centre, and valid positive Hours are required.', 'error');
+        timesheetState.isSaving = false;
+        updateAddButtonState();
+        return;
+      }
+
+      let employeesToProcess = [];
+      if (timesheetState.isTeamMode) {
+        if (timesheetState.selectedEmployees.length > 0) {
+          employeesToProcess = [...timesheetState.selectedEmployees];
+        } else {
+          showNotification('Please select at least one employee in team mode.', 'error');
+          timesheetState.isSaving = false;
+          updateAddButtonState();
+          return;
+        }
+      } else {
+        if (window.loggedInAccountId) {
+          employeesToProcess = [{ id: window.loggedInAccountId, name: window.currentUserName || 'Me' }];
+        } else {
+          showNotification('Logged-in user ID not available.', 'error');
+          timesheetState.isSaving = false;
+          updateAddButtonState();
+          return;
+        }
+      }
+
+      // Validate 24-hour daily limit before proceeding
+      const employeeIds = employeesToProcess.map(emp => emp.id);
+      const limitValidation = validateDailyLimit(hours, employeeIds);
+      if (!limitValidation.valid) {
+        showNotification(limitValidation.reason, 'error');
+        timesheetState.isSaving = false;
+        updateAddButtonState();
+        return;
+      }
+
+      const formattedDate = formatDateForSubmission(timesheetState.currentDate);
+
+      // Store form values before clearing form (needed for API calls later)
+      const selectedProjectCode = timesheetState.selectedProject.project_code;
+      const selectedProjectDescription = timesheetState.selectedProject.description;
+      const selectedWorkCentreCode = workCentreSelect.value;
+      
+      // Get full work centre display text for optimistic entries
+      const selectedWorkCentreOption = workCentreSelect.options[workCentreSelect.selectedIndex];
+      const selectedWorkCentreDisplay = selectedWorkCentreOption ? selectedWorkCentreOption.text : selectedWorkCentreCode;
+
+      // Create optimistic entries immediately
+      const optimisticEntries = employeesToProcess.map(employee => 
+        createOptimisticEntry(
+          employee, 
+          selectedProjectCode,
+          selectedProjectDescription,
+          selectedWorkCentreDisplay,
+          hours,
+          formattedDate
+        )
+      );
+
+      // Add to UI immediately and clear form
+      addOptimisticEntries(optimisticEntries);
+      clearForm();
+      
+      // Track existing real IDs before making any API calls
+      const existingRealIds = timesheetState.entries
+        .filter(e => !e.id.toString().startsWith('temp-'))
+        .map(e => e.id.toString());
+      
+      try {
+        // Make API calls in background
+        const apiResults = []; // Collect all API responses
+        
+        for (const employee of employeesToProcess) {
+          const entryData = {
+            project_code: selectedProjectCode,
+            work_centre: selectedWorkCentreCode,
+            hours: hours,
+            entry_date: formattedDate
+          };
+
+          const requestBody = {
+            staff_id: employee.id,
+            date: formattedDate,
+            entries: [entryData]
+          };
+
+          const response = await fetch('/api/timesheets/modify-line', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!response.ok) {
+            const err = await response.json();
+            if (err.error === 'no_workbench_mapping') {
+              throw new Error('Account not connected to Workbench');
+            }
+            throw new Error(err.message || 'Failed to save entry');
+          }
+
+          const result = await response.json();
+          if (!result.success) {
+            throw new Error(result.message || 'Failed to save entry');
+          }
+          
+          // Store result with employee info for processing after all API calls
+          const employeeIndex = employeesToProcess.indexOf(employee);
+          apiResults.push({ 
+            result, 
+            employee, 
+            optimisticEntry: optimisticEntries[employeeIndex] 
+          });
+        }
+
+        // Success: Update IDs with real IDs from server responses
+        apiResults.forEach(({ result, employee, optimisticEntry }) => {
+          logger.debug('API response result:', result); // Debug: see response structure
+          
+          // Extract new JobTranIds from the Workbench response
+          if (result.result && result.result.Rows) {
+            // Find all NEW JobTranIds that weren't in our list before
+            const newJobTranIds = result.result.Rows
+              .map(row => row.Key.JobTranId.toString())
+              .filter(id => !existingRealIds.includes(id));
+            
+            logger.debug('Found new JobTranIds:', newJobTranIds);
+            logger.debug('Looking for optimistic entry:', optimisticEntry.id);
+            
+            // If we found new IDs, use the first one for this entry
+            // (This assumes single entry additions, which is the case here)
+            if (newJobTranIds.length > 0) {
+              const realId = newJobTranIds[0];
+              logger.debug(`Updating temp ID ${optimisticEntry.id} to real ID ${realId}`);
+              updateOptimisticEntryId(optimisticEntry.id, realId);
+              clearOptimisticFlags(realId);
+              
+              // Add this new ID to our tracking list for subsequent API calls
+              existingRealIds.push(realId);
+            } else {
+              logger.warn('No new JobTranIds found in response');
+              // Just clear optimistic flags without updating ID
+              clearOptimisticFlags(optimisticEntry.id);
+            }
+          } else {
+            logger.warn('Unexpected response structure:', result);
+            // Just clear optimistic flags without updating ID
+            clearOptimisticFlags(optimisticEntry.id);
+          }
+        });
+
+      } catch (error) {
+        logger.error('Error adding entry:', error);
+        
+        // Rollback: Remove optimistic entries
+        removeOptimisticEntries(optimisticEntries);
+        
+        showNotification(`Failed to add entry: ${error.message}`, 'error');
+      } finally {
+        timesheetState.isSaving = false;
+        updateAddButtonState();
+      }
+    }
+
+    async function deleteEntry(entryId) {
+      if (timesheetState.isSaving || timesheetState.isDeletingEntry) return;
+      
+      const entry = timesheetState.entries.find(e => e.id === entryId);
+      if (!entry) return;
+
+      // Check if this is a temp ID that hasn't been saved yet
+      if (entryId.toString().startsWith('temp-')) {
+        showNotification('Please wait for the entry to save before deleting', 'info');
+        return;
+      }
+
+      showConfirmationDialog('Are you sure you want to delete this entry?', () => {
+        performDeleteEntry(entryId, entry);
+      });
+    }
+
+    async function performDeleteEntry(entryId, entry) {
+      // Prevent deletion while saving (with temp ID)
+      if (timesheetState.isSaving) {
+        showNotification('Please wait for entries to finish saving before deleting', 'info');
+        return;
+      }
+
+      // Optimistically remove from UI immediately
+      const removedEntry = removeOptimisticEntry(entryId);
+      if (!removedEntry) return;
+
+      timesheetState.isDeletingEntry = entryId;
+
+      try {
+        // Skip API call for optimistic entries that haven't been saved yet
+        if (entry._optimistic) {
+          // Entry was never saved to Workbench, just remove from UI
+          return;
+        }
+
+        // Extract work centre code from full description (handles both formats)
+        const workCentreCode = entry.work_centre.includes(' - ') 
+          ? entry.work_centre.split(' - ')[0] 
+          : entry.work_centre;
+
+        const delPayload = {
+          id: entry.id,
+          project_code: entry.project_code,
+          work_centre: workCentreCode,
+          hours: entry.hours,
+          entry_date: entry.entry_date,
+          delete: true
+        };
+
+        const requestBody = {
+          staff_id: entry.employee_id,
+          date: formatDateForSubmission(timesheetState.currentDate),
+          entries: [delPayload]
+        };
+
+        const response = await fetch('/api/timesheets/modify-line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.message || 'Failed to delete entry');
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+          throw new Error(result.message || 'Failed to delete entry');
+        }
+
+        // Success - entry stays deleted
+
+      } catch (error) {
+        logger.error('Error deleting entry:', error);
+        
+        // Rollback: Restore the entry
+        restoreEntry(removedEntry.entry, removedEntry.index);
+        
+        showNotification(`Failed to delete: ${error.message}`, 'error');
+      } finally {
+        timesheetState.isDeletingEntry = null;
+      }
+    }
+
+    function startEditing(entryId) {
+      // Check if this is a temp ID that hasn't been saved yet
+      if (entryId.toString().startsWith('temp-')) {
+        showNotification('Please wait for the entry to save before editing', 'info');
+        return;
+      }
+      
+      // Simplified editing - would need more implementation for inline editing
+      const entry = timesheetState.entries.find(e => e.id === entryId);
+      if (!entry) return;
+      
+      showInputDialog('Enter new hours:', entry.hours.toString(), (value) => {
+        const newHours = parseFloat(value);
+        if (!isNaN(newHours) && newHours > 0) {
+          editEntry(entryId, newHours);
+        } else {
+          showNotification('Please enter a valid number of hours', 'error');
+        }
+      });
+    }
+
+    async function editEntry(entryId, newHours) {
+      const entry = timesheetState.entries.find(e => e.id === entryId);
+      if (!entry) return;
+
+      const originalHours = entry.hours;
+
+      // Update UI immediately with optimistic change
+      updateOptimisticEntry(entryId, { hours: newHours });
+
+      try {
+        // Skip API call for optimistic entries that haven't been saved yet
+        if (entry._optimistic && entry._optimisticType === 'add') {
+          // Entry is still pending, just update locally
+          clearOptimisticFlags(entryId);
+          return;
+        }
+
+        const payload = {
+          id: entry.id,
+          project_code: entry.project_code,
+          work_centre: entry.work_centre,
+          hours: newHours,
+          entry_date: entry.entry_date
+        };
+
+        const requestBody = {
+          staff_id: entry.employee_id,
+          date: formatDateForSubmission(timesheetState.currentDate),
+          entries: [payload]
+        };
+
+        const response = await fetch('/api/timesheets/modify-line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.message || 'Failed to update entry');
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+          throw new Error(result.message || 'Failed to update entry');
+        }
+
+        // Success: Clear optimistic flags
+        clearOptimisticFlags(entryId);
+
+      } catch (error) {
+        logger.error('Error editing entry:', error);
+        
+        // Rollback: Restore original hours
+        updateOptimisticEntry(entryId, { hours: originalHours });
+        clearOptimisticFlags(entryId);
+        
+        showNotification(`Failed to update: ${error.message}`, 'error');
+      }
+    }
+
+    // Event handlers
+    function setupEventListeners() {
+      // Mode toggle
+      document.getElementById('mode-toggle-btn').addEventListener('click', function() {
+        timesheetState.isTeamMode = !timesheetState.isTeamMode;
+        updateModeToggle();
+        
+        if (!timesheetState.isTeamMode) {
+          timesheetState.selectedEmployees = [];
+          updateSelectedEmployees();
+        } else {
+          // Auto-select current user when switching to team mode
+          if (window.loggedInAccountId && timesheetState.employees.length > 0) {
+            const currentUser = timesheetState.employees.find(emp => String(emp.user_id) === String(window.loggedInAccountId));
+            if (currentUser && !timesheetState.selectedEmployees.some(e => e.id === currentUser.user_id)) {
+              timesheetState.selectedEmployees = [{ id: currentUser.user_id, name: currentUser.full_name }];
+              updateSelectedEmployees();
+              renderEmployeeList();
+            }
+          }
+        }
+        
+        loadEntriesForDay();
+      });
+
+      // Employee selection toggle
+      document.getElementById('select-team-btn').addEventListener('click', function() {
+        const selector = document.getElementById('employee-selector');
+        selector.classList.toggle('active');
+        this.textContent = selector.classList.contains('active') ? 'Close' : 'Select Employees';
+      });
+
+      // Select all employees
+      document.getElementById('select-all-btn').addEventListener('click', function() {
+        timesheetState.selectedEmployees = timesheetState.employees.map(emp => ({
+          id: emp.user_id,
+          name: emp.full_name
+        }));
+        updateSelectedEmployees();
+        renderEmployeeList();
+        loadEntriesForDay();
+      });
+
+      // Clear employee selection
+      document.getElementById('clear-all-btn').addEventListener('click', function() {
+        timesheetState.selectedEmployees = [];
+        updateSelectedEmployees();
+        renderEmployeeList();
+        loadEntriesForDay();
+      });
+
+      // Day navigation
+      document.getElementById('prev-day-btn').addEventListener('click', function() {
+        timesheetState.currentDate = new Date(timesheetState.currentDate.getTime() - (24 * 60 * 60 * 1000));
+        updateDateDisplay();
+        loadEntriesForDay();
+      });
+
+      document.getElementById('next-day-btn').addEventListener('click', function() {
+        timesheetState.currentDate = new Date(timesheetState.currentDate.getTime() + (24 * 60 * 60 * 1000));
+        updateDateDisplay();
+        loadEntriesForDay();
+      });
+
+      // Project search - connect to work centre loading
+      const projectSearch = document.getElementById('project-search');
+      projectSearch.addEventListener('change', function() {
+        const searchValue = this.value;
+        if (searchValue) {
+          // Find the project by the display value (project_code - description)
+          const project = timesheetState.projectData.find(p => {
+            const displayValue = `${p.project_code} - ${p.description}`;
+            return displayValue === searchValue || p.project_code === searchValue;
+          });
+          if (project) {
+            selectProject(project);
+          } else {
+            timesheetState.selectedProject = null;
+          }
+        } else {
+          timesheetState.selectedProject = null;
+        }
+        updateAddButtonState();
+      });
+
+      // Hours input
+      const hoursInput = document.getElementById('hours');
+      hoursInput.addEventListener('input', function() {
+        const timeDisplay = document.getElementById('time-format-display');
+        const newHours = parseFloat(this.value);
+
+        if (this.value && newHours > 0) {
+          // Calculate what the total would be for each affected employee
+          let employeesToCheck = [];
+          if (timesheetState.isTeamMode) {
+            employeesToCheck = timesheetState.selectedEmployees.map(e => ({ id: e.id, name: e.name }));
+          } else if (window.loggedInAccountId) {
+            employeesToCheck = [{ id: window.loggedInAccountId, name: window.currentUserName || 'Me' }];
+          }
+
+          if (employeesToCheck.length > 0) {
+            // Calculate prospective totals
+            const totalsInfo = employeesToCheck.map(emp => {
+              const currentHours = calculateDailyHours(emp.id);
+              const prospectiveTotal = currentHours + newHours;
+              return {
+                name: emp.name,
+                current: currentHours,
+                total: prospectiveTotal,
+                exceeds: prospectiveTotal > 24
+              };
+            });
+
+            // Build display text
+            if (timesheetState.isTeamMode && employeesToCheck.length > 0) {
+              // Team mode: show each employee's prospective total
+              const displayLines = totalsInfo.map(info => {
+                const totalText = `${info.name}: ${info.total.toFixed(2)}h total`;
+                return info.exceeds ? `${totalText} ⚠️ EXCEEDS 24h!` : totalText;
+              });
+              timeDisplay.innerHTML = displayLines.join('<br>');
+
+              // Add warning styling if any exceed
+              if (totalsInfo.some(info => info.exceeds)) {
+                timeDisplay.style.color = 'var(--error)';
+                timeDisplay.style.fontWeight = '600';
+              } else {
+                timeDisplay.style.color = 'var(--text-secondary)';
+                timeDisplay.style.fontWeight = 'normal';
+              }
+            } else {
+              // Personal mode: show single total
+              const info = totalsInfo[0];
+              if (info) {
+                const totalText = `Total will be: ${info.total.toFixed(2)} hours`;
+                timeDisplay.textContent = info.exceeds ? `${totalText} - EXCEEDS 24h LIMIT!` : totalText;
+
+                if (info.exceeds) {
+                  timeDisplay.style.color = 'var(--error)';
+                  timeDisplay.style.fontWeight = '600';
+                } else {
+                  timeDisplay.style.color = 'var(--text-secondary)';
+                  timeDisplay.style.fontWeight = 'normal';
+                }
+              }
+            }
+          } else {
+            // No employees selected, just show conversion
+            timeDisplay.textContent = convertToHoursMinutes(this.value);
+            timeDisplay.style.color = 'var(--text-secondary)';
+            timeDisplay.style.fontWeight = 'normal';
+          }
+        } else {
+          timeDisplay.textContent = '';
+          timeDisplay.style.color = 'var(--text-secondary)';
+          timeDisplay.style.fontWeight = 'normal';
+        }
+        updateAddButtonState();
+      });
+
+      hoursInput.addEventListener('blur', function() {
+        this.value = formatTimeValue(this.value);
+        updateAddButtonState();
+      });
+
+      hoursInput.addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') {
+          addEntry();
+        }
+      });
+
+      // Work centre selection
+      document.getElementById('work-centre').addEventListener('change', function() {
+        updateAddButtonState();
+      });
+
+      // Add entry button
+      document.getElementById('add-entry-btn').addEventListener('click', addEntry);
+
+    }
+
+    // Initialize application
+    function initializeApp() {
+      // Initialize date
+      if (window.selectedDate) {
+        timesheetState.currentDate = parseDateString(window.selectedDate);
+      }
+
+      // Initialize employees for team mode
+      if (window.staff && Array.isArray(window.staff)) {
+        timesheetState.employees = window.staff;
+        timesheetState.isLoadingEmployees = false; // Set to false since we have the data
+        logger.debug('Initialized employees from window.staff:', timesheetState.employees);
+      } else {
+        logger.debug('No staff data found in window.staff:', window.staff);
+        timesheetState.isLoadingEmployees = false; // Set to false even if no data
+      }
+
+      // Ensure current user is in employee list
+      if (window.loggedInAccountId && !timesheetState.employees.some(e => String(e.user_id) === String(window.loggedInAccountId))) {
+        if (window.currentUserName && window.currentUserName !== 'Me') {
+          timesheetState.employees.push({
+            user_id: window.loggedInAccountId,
+            full_name: window.currentUserName
+          });
+          logger.debug('Added current user to employees list:', window.currentUserName);
+        }
+      }
+
+      // Initialize SearchSelectManager with project data
+      logger.debug('Project data initialization:', {
+        hasProjectData: !!timesheetState.projectData,
+        projectCount: timesheetState.projectData ? timesheetState.projectData.length : 0,
+        projects: timesheetState.projectData
+      });
+      
+      if (timesheetState.projectData && timesheetState.projectData.length > 0) {
+        // Populate datalist for backwards compatibility
+        const datalist = document.getElementById('project-search-datalist');
+        if (datalist) {
+          datalist.innerHTML = '';
+          timesheetState.projectData.forEach(project => {
+            const option = document.createElement('option');
+            const label = `${project.project_code} - ${project.description}`;
+            option.value = label;
+            option.textContent = label;
+            datalist.appendChild(option);
+          });
+          logger.debug('Populated datalist with', timesheetState.projectData.length, 'projects');
+        }
+
+        // Set options for SearchSelectManager
+        const projectOptions = timesheetState.projectData.map(project => ({
+          label: `${project.project_code} - ${project.description}`,
+          value: `${project.project_code} - ${project.description}`
+        }));
+        
+        // Ensure SearchSelectManager is initialized and set options
+        if (typeof SearchSelectManager !== 'undefined') {
+          logger.debug('Setting SearchSelectManager options:', projectOptions.length, 'options');
+          SearchSelectManager.setOptions('project-search', projectOptions);
+        } else {
+          logger.error('SearchSelectManager not available');
+        }
+      } else {
+        logger.debug('No project data available for initialization');
+      }
+
+      // Setup UI
+      updateDateDisplay();
+      updateModeToggle();
+      renderEmployeeList();
+      
+      // Setup event listeners
+      setupEventListeners();
+
+      // Load initial data
+      loadEntriesForDay();
+    }
+
+    // Start when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize SearchSelectManager first
+      if (typeof SearchSelectManager !== 'undefined') {
+        SearchSelectManager.autoInit();
+      }
+      
+      // Then initialize the app
+      initializeApp();
+    });

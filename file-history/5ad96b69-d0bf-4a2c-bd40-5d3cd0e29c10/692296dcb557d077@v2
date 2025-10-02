@@ -1,0 +1,203 @@
+const evaluateNote3 = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-3-evaluator');
+
+describe('Note 3 Evaluator - SI Dual Water Supply Requirement', () => {
+  describe('Applicability', () => {
+    test('should not apply to SM risk group', () => {
+      const firecell = { riskGroup: 'SM' };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(false);
+      expect(result.requiresDualSupply).toBeUndefined();
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('should not apply to CA risk group', () => {
+      const firecell = { riskGroup: 'CA' };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WB risk group', () => {
+      const firecell = { riskGroup: 'WB' };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WS risk group', () => {
+      const firecell = { riskGroup: 'WS' };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to VP risk group', () => {
+      const firecell = { riskGroup: 'VP' };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should apply to SI risk group', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 50
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresDualSupply).toBeDefined();
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('Dual Water Supply Requirement', () => {
+    test('should require dual supply when care/detention count exceeds 100', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 101
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresDualSupply).toBe(true);
+      expect(result.reason).toBe('>100 people in care/detention - dual water supply required');
+    });
+
+    test('should NOT require dual supply when exactly 100 people', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 100
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+      expect(result.reason).toBe('Standard sprinkler supply acceptable');
+    });
+
+    test('should NOT require dual supply when less than 100 people', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 50
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle 0 people as not requiring dual supply', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 0
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should require dual supply at boundary (101 people)', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 101
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(true);
+    });
+
+    test('should require dual supply for large counts', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 500
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(true);
+    });
+  });
+
+  describe('Edge Cases and Missing Data', () => {
+    test('should handle missing hospitalCareDetentionCount as no requirement', () => {
+      const firecell = {
+        riskGroup: 'SI'
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle null count', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: null
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle undefined count', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: undefined
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle non-numeric count', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 'one hundred'
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle negative count as invalid', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: -50
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+
+    test('should handle Infinity as invalid', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: Infinity
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.requiresDualSupply).toBe(false);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when dual supply required', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 150
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.reason).toBe('>100 people in care/detention - dual water supply required');
+    });
+
+    test('should provide clear reason when standard supply acceptable', () => {
+      const firecell = {
+        riskGroup: 'SI',
+        hospitalCareDetentionCount: 80
+      };
+      const result = evaluateNote3(firecell);
+
+      expect(result.reason).toBe('Standard sprinkler supply acceptable');
+    });
+  });
+});

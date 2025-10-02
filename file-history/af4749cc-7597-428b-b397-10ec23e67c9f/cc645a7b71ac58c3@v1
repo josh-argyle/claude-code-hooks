@@ -1,0 +1,338 @@
+extends layout
+
+block pageHeader
+  .page-header
+    h1.page-title Bug Reporting & Feedback
+
+block content
+  if locals.session && locals.session.username === 'admin'
+    .feedback-list-container
+      .filter-bar
+        .search-bar
+          .search-container
+            +floating-input({type: 'text', name: 'search', placeholder: 'Search feedback...', classes: 'search-input'})
+            +floating-input({type: 'select', name: 'filter', placeholder: 'All Status', classes: 'search-filter'})
+              option(value="") All Status
+              option(value="active") Active
+              option(value="inactive") Inactive
+            +reset-search-btn()
+      
+      #feedbackCards.feedback-cards
+        .loading-message Loading feedback...
+  else if locals.session
+    .feedback-form-container
+      form#feedbackForm
+        +floating-input({
+          type: 'textarea',
+          name: 'feedback',
+          placeholder: 'Enter your feedback or bug report',
+          required: true,
+          rows: 6
+        })
+        
+        +floating-checkbox({
+          name: 'anonymous',
+          placeholder: 'Send feedback anonymously',
+          value: 'true'
+        })
+        
+        .button-container
+          button.btn.btn-primary(type='submit')
+            +icon('send')
+            | Send feedback
+
+block scripts
+
+  if locals.session && locals.session.username === 'admin'
+    script.
+      // Admin view - display all feedback as cards
+      document.addEventListener('DOMContentLoaded', function() {
+        const cardsContainer = document.getElementById('feedbackCards');
+        let allFeedback = [];
+        
+        // Sort function: active first by date, then inactive by date
+        function sortFeedback(data) {
+          return data.sort((a, b) => {
+            // First sort by status (active before inactive)
+            if (a.status === 'active' && b.status === 'inactive') return -1;
+            if (a.status === 'inactive' && b.status === 'active') return 1;
+            // Then sort by date (newest first)
+            return new Date(b.timestamp) - new Date(a.timestamp);
+          });
+        }
+        
+        // Render cards function
+        function renderCards(data) {
+          if (data.length === 0) {
+            cardsContainer.innerHTML = '<p class="no-feedback">No feedback found.</p>';
+            return;
+          }
+          
+          const sortedData = sortFeedback([...data]);
+          
+          const cardsHtml = sortedData.map(item => {
+            const date = new Date(item.created_at);
+            const formattedDate = date.toLocaleDateString('en-NZ', { 
+              day: 'numeric', 
+              month: 'short', 
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+            
+            const isInactive = item.status === 'inactive';
+            
+            return `
+              <div class="feedback-card ${isInactive ? 'inactive' : ''}" data-feedback-id="${item.feedback_id}">
+                <div class="feedback-checkbox">
+                  <input type="checkbox" 
+                         id="feedback-${item.feedback_id}" 
+                         ${isInactive ? 'checked' : ''}
+                         onchange="toggleFeedbackStatus('${item.feedback_id}')">
+                  <label for="feedback-${item.feedback_id}">Mark as resolved</label>
+                </div>
+                <div class="feedback-header">
+                  <div class="feedback-user">${item.username}</div>
+                  <div class="feedback-date">${formattedDate}</div>
+                </div>
+                <div class="feedback-content">
+                  ${item.feedback}
+                </div>
+              </div>
+            `;
+          }).join('');
+          
+          cardsContainer.innerHTML = cardsHtml;
+        }
+        
+        // Toggle feedback status
+        window.toggleFeedbackStatus = async function(id) {
+          const feedbackItem = allFeedback.find(item => item.feedback_id === id);
+          if (feedbackItem) {
+            const newStatus = feedbackItem.status === 'active' ? 'inactive' : 'active';
+            
+            try {
+              const response = await fetch(`/api/feedback/${id}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+              });
+              
+              if (response.ok) {
+                feedbackItem.status = newStatus;
+                filterData(); // Re-render with current filters
+              } else {
+                showNotification('Failed to update feedback status', 'error');
+              }
+            } catch (error) {
+              logger.error('Error updating feedback status:', error);
+              showNotification('Failed to update feedback status', 'error');
+            }
+          }
+        };
+        
+        // Filter function
+        function filterData() {
+          const searchInput = document.querySelector('.floating-label.search-input input');
+          const filterSelect = document.querySelector('.floating-label.search-filter select');
+          
+          const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+          const filterValue = filterSelect ? filterSelect.value : '';
+          
+          const filtered = allFeedback.filter(item => {
+            let matchesSearch = true;
+            let matchesFilter = true;
+            
+            if (searchTerm) {
+              matchesSearch = (item.feedback && item.feedback.toLowerCase().includes(searchTerm)) ||
+                            (item.username && item.username.toLowerCase().includes(searchTerm));
+            }
+            
+            if (filterValue) {
+              matchesFilter = item.status === filterValue;
+            }
+            
+            return matchesSearch && matchesFilter;
+          });
+          
+          renderCards(filtered);
+        }
+        
+        // Setup search and filter
+        function setupSearch() {
+          const searchInput = document.querySelector('.floating-label.search-input input');
+          const filterSelect = document.querySelector('.floating-label.search-filter select');
+          const resetButton = document.querySelector('.reset-search-btn');
+          
+          if (searchInput) {
+            searchInput.addEventListener('input', filterData);
+          }
+          
+          if (filterSelect) {
+            filterSelect.addEventListener('change', filterData);
+          }
+          
+          if (resetButton) {
+            resetButton.addEventListener('click', function() {
+              if (searchInput) searchInput.value = '';
+              if (filterSelect) filterSelect.selectedIndex = 0;
+              renderCards(allFeedback);
+            });
+          }
+        }
+        
+        // Load feedback from API
+        async function loadFeedback() {
+          try {
+            const response = await fetch('/api/feedback');
+            if (response.ok) {
+              allFeedback = await response.json();
+              renderCards(allFeedback);
+            } else {
+              cardsContainer.innerHTML = '<p class="error-message">Failed to load feedback</p>';
+            }
+          } catch (error) {
+            logger.error('Error loading feedback:', error);
+            cardsContainer.innerHTML = '<p class="error-message">Failed to load feedback</p>';
+          }
+        }
+        
+        // Initial load
+        loadFeedback();
+        setupSearch();
+      });
+
+  else if locals.session
+    script.
+      document.getElementById('feedbackForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        const feedback = formData.get('feedback');
+        const isAnonymous = formData.get('anonymous') === 'true';
+        
+        try {
+          const response = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              feedback: feedback,
+              anonymous: isAnonymous
+            })
+          });
+          
+          if (response.ok) {
+            showNotification('Feedback sent successfully', 'success');
+            this.reset();
+          } else {
+            const error = await response.json();
+            showNotification(error.error || 'Failed to submit feedback', 'error');
+          }
+        } catch (error) {
+          logger.error('Error submitting feedback:', error);
+          showNotification('Failed to submit feedback', 'error');
+        }
+      });
+
+block styles
+  style.
+    .feedback-form-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    
+    .feedback-form-container .floating-checkbox {
+      margin-top: 1.5rem;
+    }
+    
+    .button-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+    
+    /* Admin view styles */
+    .feedback-list-container {
+      padding: 2rem;
+    }
+    
+    .feedback-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .feedback-card {
+      background: var(--card-background);
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius);
+      padding: 1.5rem;
+      position: relative;
+      transition: opacity 0.3s ease;
+    }
+    
+    .feedback-card.inactive {
+      opacity: 0.6;
+      background: var(--background-light);
+    }
+    
+    .feedback-checkbox {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .feedback-checkbox input[type="checkbox"] {
+      cursor: pointer;
+    }
+    
+    .feedback-checkbox label {
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    
+    .feedback-header {
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-right: 10rem; /* Space for checkbox */
+    }
+    
+    .feedback-user {
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 0.25rem;
+    }
+    
+    .feedback-date {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+    
+    .feedback-content {
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+    
+    .no-feedback {
+      text-align: center;
+      color: var(--text-secondary);
+      padding: 3rem;
+    }
+    
+    .loading-message {
+      text-align: center;
+      color: var(--text-secondary);
+      padding: 2rem;
+    }
+    
+    .error-message {
+      text-align: center;
+      color: var(--danger);
+      padding: 2rem;
+    }

@@ -1,0 +1,81 @@
+const { calculateEffectiveFireResistanceRatings } = require('./calculator');
+const { generateComplianceParagraphs } = require('./compliance-generator');
+const { generateRequirementsParagraphs } = require('./requirements-generator');
+
+/**
+ * Process fire resistance for all firecells in a project model
+ * Calculates fire resistance ratings and adds them to the project model
+ * @param {ProjectModel} projectModel - The project model containing all firecells
+ * @returns {ProjectModel} The same project model with fire resistance data added
+ */
+function processFireResistance(projectModel) {
+  // 1. Extract parameters for fire resistance calculation
+  // For multi-area buildings, determine the most onerous risk group
+  let riskGroup = projectModel.primaryRiskGroup || projectModel.buildingRiskGroup;
+  let maxStorageHeight = projectModel.maxStorageHeight;
+  let hasCrossVentilation = projectModel.hasCrossVentilation;
+
+  // If no single risk group, derive from areas (multi-area building)
+  if (!riskGroup && projectModel.areas && projectModel.areas.length > 0) {
+    // Use the most onerous risk group from all areas
+    const riskGroups = projectModel.areas.map(area => area.riskGroup).filter(Boolean);
+    if (riskGroups.length > 0) {
+      const riskGroupPriority = ['SI', 'SM', 'CA', 'WB', 'WS', 'VP'];
+      riskGroup = riskGroups.reduce((most, current) => {
+        const mostIndex = riskGroupPriority.indexOf(most);
+        const currentIndex = riskGroupPriority.indexOf(current);
+        return currentIndex < mostIndex || mostIndex === -1 ? current : most;
+      });
+    }
+
+    // For WB/WS buildings, use the highest maxStorageHeight
+    if ((riskGroup === 'WB' || riskGroup === 'WS') && !maxStorageHeight) {
+      const storageHeights = projectModel.areas
+        .filter(area => area.maxStorageHeight !== undefined)
+        .map(area => area.maxStorageHeight);
+      if (storageHeights.length > 0) {
+        maxStorageHeight = Math.max(...storageHeights);
+      }
+    }
+
+    // For VP buildings, check if any area has cross ventilation
+    if (riskGroup === 'VP' && hasCrossVentilation === undefined) {
+      hasCrossVentilation = projectModel.areas.some(area => area.hasCrossVentilation);
+    }
+  }
+
+  // If still no risk group, try to get from firecells
+  if (!riskGroup && projectModel.firecells && projectModel.firecells.length > 0) {
+    const firecellRiskGroups = projectModel.firecells.map(fc => fc.riskGroup).filter(Boolean);
+    if (firecellRiskGroups.length > 0) {
+      const riskGroupPriority = ['SI', 'SM', 'CA', 'WB', 'WS', 'VP'];
+      riskGroup = firecellRiskGroups.reduce((most, current) => {
+        const mostIndex = riskGroupPriority.indexOf(most);
+        const currentIndex = riskGroupPriority.indexOf(current);
+        return currentIndex < mostIndex || mostIndex === -1 ? current : most;
+      });
+    }
+  }
+
+  const isSprinklered = projectModel.isSprinklered;
+  const escapeHeight = projectModel.escapeHeight;
+  const distanceFromBoundary15mOrMore = projectModel.distanceFromBoundary15mOrMore;
+
+  // 2. Calculate fire resistance ratings with all modifications
+  const calculations = calculateEffectiveFireResistanceRatings({
+    riskGroup,
+    isSprinklered,
+    escapeHeight,
+    distanceFromBoundary15mOrMore,
+    maxStorageHeight,
+    hasCrossVentilation
+  });
+
+  // 3. Add fire resistance calculations to project model
+  projectModel.fireResistanceCalculations = calculations;
+
+  // 4. Return modified project model
+  return projectModel;
+}
+
+module.exports = { processFireResistance };

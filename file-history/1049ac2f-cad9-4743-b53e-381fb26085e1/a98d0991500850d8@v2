@@ -1,0 +1,278 @@
+const evaluateNote4 = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-4-evaluator');
+
+describe('Note 4 Evaluator - CA Early Childhood Centre Additional Requirements (CAS2 2.2.4)', () => {
+
+  describe('Condition (a): Escape height ≤ 2.0m', () => {
+    test('should track supplementary smoke detectors when sleeping areas exist', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 1.5,
+        hasDedicatedSleepingAreas: true,
+        supplementarySmokeDetectorsCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresType7).toBe(false);
+      expect(result.additionalSystems).toHaveLength(0);
+      expect(result.complianceInfo.supplementarySmokeDetectors).toEqual({
+        required: true,
+        location: 'Dedicated sleeping areas',
+        standard: 'NZS 4512',
+        compliant: true,
+        paragraph: '2.2.4(a)'
+      });
+    });
+
+    test('should track non-compliant supplementary smoke detectors', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 1.8,
+        hasDedicatedSleepingAreas: true,
+        supplementarySmokeDetectorsCompliant: false
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.complianceInfo.supplementarySmokeDetectors.compliant).toBe(false);
+    });
+
+    test('should not track smoke detectors when no sleeping areas', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 1.5,
+        hasDedicatedSleepingAreas: false
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.complianceInfo.supplementarySmokeDetectors).toBeUndefined();
+    });
+
+    test('should handle exactly 2.0m as ≤ 2.0 (condition a applies)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.0,
+        hasDedicatedSleepingAreas: true,
+        supplementarySmokeDetectorsCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      // Condition (a) applies, NOT condition (b)
+      expect(result.requiresType7).toBe(false);
+      expect(result.complianceInfo.supplementarySmokeDetectors).toBeDefined();
+      expect(result.complianceInfo.placesOfSafety).toBeUndefined();
+    });
+
+    test('should handle missing escape height as 0 (condition a)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        // escapeHeight: undefined
+        hasDedicatedSleepingAreas: true,
+        supplementarySmokeDetectorsCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.requiresType7).toBe(false);
+      expect(result.complianceInfo.supplementarySmokeDetectors).toBeDefined();
+    });
+
+    test('should handle undefined compliance data gracefully', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 1.5,
+        hasDedicatedSleepingAreas: true
+        // supplementarySmokeDetectorsCompliant: undefined
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      // undefined === true is false, so compliant = false
+      expect(result.complianceInfo.supplementarySmokeDetectors.compliant).toBe(false);
+    });
+  });
+
+  describe('Condition (b): Escape height > 2.0m', () => {
+    test('should add Type 7 and track places of safety when height > 2.0m', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.5,
+        placesOfSafetyCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresType7).toBe(true);
+      expect(result.additionalSystems).toContain('7');
+      expect(result.complianceInfo.placesOfSafety).toEqual({
+        minimumRequired: 2,
+        requiresFireSeparations: true,
+        requiresDirectAccessToSafePath: true,
+        compliant: true,
+        paragraph: '2.2.4(b)(ii)&(iii)'
+      });
+    });
+
+    test('should track non-compliant places of safety', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 3.0,
+        placesOfSafetyCompliant: false
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.requiresType7).toBe(true);
+      expect(result.complianceInfo.placesOfSafety.compliant).toBe(false);
+    });
+
+    test('should handle exactly 2.01m as > 2.0 (condition b applies)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.01,
+        placesOfSafetyCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      // Condition (b) applies
+      expect(result.requiresType7).toBe(true);
+      expect(result.additionalSystems).toContain('7');
+      expect(result.complianceInfo.placesOfSafety).toBeDefined();
+    });
+
+    test('should handle very high escape height', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 25.0,
+        placesOfSafetyCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.requiresType7).toBe(true);
+      expect(result.additionalSystems).toContain('7');
+    });
+
+    test('should handle missing compliance data for places of safety', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.5
+        // placesOfSafetyCompliant: undefined
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.requiresType7).toBe(true);
+      expect(result.complianceInfo.placesOfSafety.compliant).toBe(false);
+    });
+  });
+
+  describe('Non-applicability', () => {
+    test('should not apply to non-CA risk groups', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.5
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply when not early childhood centre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: false,
+        escapeHeight: 2.5
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle CA early childhood with escape height 0', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 0,
+        hasDedicatedSleepingAreas: false
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresType7).toBe(false);
+    });
+
+    test('should handle unusual case: high ceiling single-storey (only condition b)', () => {
+      // Building might be single storey but has high ceilings >2.0m
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: true,
+        escapeHeight: 2.5,
+        hasDedicatedSleepingAreas: true,
+        supplementarySmokeDetectorsCompliant: true,
+        placesOfSafetyCompliant: true
+      };
+
+      const result = evaluateNote4(firecell, {}, []);
+
+      // Only condition (b) applies because escape height > 2.0
+      expect(result.requiresType7).toBe(true);
+      expect(result.complianceInfo.placesOfSafety).toBeDefined();
+      expect(result.complianceInfo.supplementarySmokeDetectors).toBeUndefined();
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle null firecell parameter', () => {
+      const result = evaluateNote4(null, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle undefined firecell parameter', () => {
+      const result = evaluateNote4(undefined, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should handle empty object firecell', () => {
+      const firecell = {};
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should require exact boolean true for isEarlyChildhoodCentre', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        isEarlyChildhoodCentre: 'true', // String not boolean
+        escapeHeight: 2.5
+      };
+      const result = evaluateNote4(firecell, {}, []);
+
+      expect(result.applies).toBe(false);
+    });
+  });
+});

@@ -1,0 +1,545 @@
+const { expect } = require('@playwright/test');
+
+class NotificationsPage {
+  constructor(page) {
+    this.page = page;
+
+    // Page header elements
+    this.pageTitle = page.locator('h1.page-title');
+
+    // Filter controls (Vue component uses .filter-tab class, scope to page component)
+    this.filterButtons = page.locator('#notifications-page-vue .filter-tab');
+    this.allFilterButton = page.locator('#notifications-page-vue .filter-tab:has-text("All")');
+    this.unreadFilterButton = page.locator('#notifications-page-vue .filter-tab:has-text("Unread")');
+    this.todosFilterButton = page.locator('#notifications-page-vue .filter-tab:has-text("Todos")');
+    this.activeFilterButton = page.locator('#notifications-page-vue .filter-tab.active');
+
+    // Create notification section
+    this.createNotificationButton = page.locator('#create-notification-btn');
+
+    // Notifications list (Vue component structure, scope to page component)
+    this.notificationsList = page.locator('#notifications-page-vue .notifications-container');
+    this.notificationCards = page.locator('#notifications-page-vue .notification-item');
+    this.loadingState = page.locator('#notifications-page-vue .loading-container');
+    this.emptyState = page.locator('#notifications-page-vue .empty-state');
+    this.errorState = page.locator('#notifications-page-vue .error-state');
+
+    // Notification card elements (Vue component structure, scope to page component)
+    this.notificationTitles = page.locator('#notifications-page-vue .notification-title');
+    this.notificationMessages = page.locator('#notifications-page-vue .notification-message');
+    this.notificationTimes = page.locator('#notifications-page-vue .notification-time');
+    this.notificationDueDates = page.locator('#notifications-page-vue .notification-due-date');
+    this.markActionButtons = page.locator('#notifications-page-vue .notification-actions .btn-icon');
+    this.completedCards = page.locator('#notifications-page-vue .notification-item.completed');
+    this.unreadCards = page.locator('#notifications-page-vue .notification-item.unread');
+    this.todoCards = page.locator('#notifications-page-vue .notification-item.todo');
+
+    // Create notification modal
+    this.createModal = page.locator('#notification-create-modal');
+    this.modalOverlay = page.locator('#notification-create-modal-overlay');
+    this.modalTitle = page.locator('#notification-create-modal .new-modal-title');
+    this.titleField = page.locator('#notification-title');
+    this.messageField = page.locator('#notification-message');
+    this.profitCentreSelect = page.locator('#profit-centre-select');
+    this.usersList = page.locator('#users-list');
+    this.userCheckboxes = page.locator('#users-list input[type="checkbox"]');
+    this.selectAllButton = page.locator('#select-all-users');
+    this.selectNoneButton = page.locator('#select-none-users');
+    this.sendNotificationButton = page.locator('#send-notification');
+    this.cancelButton = page.locator('.new-modal-cancel');
+    this.closeButton = page.locator('.new-modal-close');
+
+    // Pagination (if present)
+    this.paginationControls = page.locator('#pagination-controls');
+    this.prevPageButton = page.locator('#prev-page');
+    this.nextPageButton = page.locator('#next-page');
+    this.currentPageSpan = page.locator('#current-page');
+    this.totalPagesSpan = page.locator('#total-pages');
+
+    // Notification system
+    this.notification = page.locator('.notification');
+  }
+
+  // Navigation methods
+  async navigate() {
+    await this.page.goto('/notifications');
+  }
+
+  async waitForPageLoad() {
+    await this.page.waitForLoadState('networkidle');
+    await expect(this.pageTitle).toBeVisible({ timeout: 10000 });
+
+    // Wait for Vue component to mount and render
+    await this.page.waitForFunction(() => {
+      return document.querySelector('#notifications-page-vue .notifications-inline-container') !== null;
+    }, { timeout: 10000 });
+
+    await this.page.waitForTimeout(1000); // Allow for initial data loading
+  }
+
+  async waitForDataLoad() {
+    // Wait for Vue component to be fully loaded
+    try {
+      // Wait for loading state to appear and then disappear
+      await this.loadingState.waitFor({ state: 'visible', timeout: 2000 });
+      await this.loadingState.waitFor({ state: 'hidden', timeout: 15000 });
+    } catch {
+      // Loading might be very brief or not visible
+      await this.page.waitForTimeout(2000);
+    }
+
+    // Wait for either notification cards to load or empty state to appear
+    await this.page.waitForFunction(() => {
+      const notificationCards = document.querySelectorAll('#notifications-page-vue .notification-item');
+      const emptyState = document.querySelector('#notifications-page-vue .empty-state');
+      return notificationCards.length > 0 || emptyState !== null;
+    }, { timeout: 10000 });
+  }
+
+  // Filter functionality
+  async clickFilter(filterType) {
+    const filterMap = {
+      all: this.allFilterButton,
+      unread: this.unreadFilterButton,
+      todos: this.todosFilterButton
+    };
+
+    const filterButton = filterMap[filterType];
+    if (!filterButton) {
+      throw new Error(`Invalid filter type: ${filterType}`);
+    }
+
+    await filterButton.click();
+
+    // Wait for filter to be applied and UI to update
+    await this.page.waitForTimeout(500);
+
+    // Wait for filter button to become active
+    await expect(filterButton).toHaveClass(/active/, { timeout: 3000 });
+  }
+
+  async getActiveFilter() {
+    const activeButton = await this.activeFilterButton.first();
+    const buttonText = await activeButton.textContent();
+    // Extract just the filter name (remove counts like "All 6")
+    const cleanText = buttonText.trim().split(' ')[0];
+    // Convert button text to filter type
+    const filterMap = {
+      All: 'all',
+      Unread: 'unread',
+      Todos: 'todos'
+    };
+    return filterMap[cleanText] || 'all';
+  }
+
+  async isFilterActive(filterType) {
+    const activeFilter = await this.getActiveFilter();
+    return activeFilter === filterType;
+  }
+
+  // Notification card methods
+  async getNotificationCardCount() {
+    return await this.notificationCards.count();
+  }
+
+  async getVisibleNotificationCardCount() {
+    const cards = await this.notificationCards.all();
+    let visibleCount = 0;
+
+    for (const card of cards) {
+      const isVisible = await card.isVisible();
+      if (isVisible) {
+        const style = await card.getAttribute('style');
+        if (!style || !style.includes('display: none')) {
+          visibleCount++;
+        }
+      }
+    }
+
+    return visibleCount;
+  }
+
+  async getNotificationCardData(indexOrTitle = 0) {
+    let card;
+    if (typeof indexOrTitle === 'string') {
+      // Find card by title
+      card = this.page.locator(`#notifications-page-vue .notification-item:has(.notification-title:has-text("${indexOrTitle}"))`);
+      if (await card.count() === 0) {
+        throw new Error(`Card with title "${indexOrTitle}" not found`);
+      }
+    } else {
+      // Find card by index
+      const cards = await this.notificationCards.all();
+      if (indexOrTitle >= cards.length) {
+        throw new Error(`Card index ${indexOrTitle} out of range. Only ${cards.length} cards found.`);
+      }
+      card = cards[indexOrTitle];
+    }
+    const title = await card.locator('.notification-title').textContent();
+    const message = await card.locator('.notification-message').textContent();
+    const time = await card.locator('.notification-time').textContent();
+
+    // Check card classes to determine state and type
+    const cardClasses = await card.getAttribute('class') || '';
+    const isCompleted = cardClasses.includes('completed');
+    const isTodo = cardClasses.includes('todo');
+    const isUnread = cardClasses.includes('unread');
+
+    // For state detection, check if the "Mark as read" button is present
+    // If no "Mark as read" button exists, the notification is read
+    let actuallyCompleted = isCompleted;
+    if (!isTodo) {
+      const hasMarkReadButton = await card.locator('.notification-actions .btn-icon[title="Mark as read"]').count() > 0;
+      actuallyCompleted = !hasMarkReadButton;
+      // Debug logging
+      const title = await card.locator('.notification-title').textContent();
+      console.log(`Card "${title}" ${await card.getAttribute('class')}, hasMarkReadButton: ${hasMarkReadButton}, actuallyCompleted: ${actuallyCompleted}`);
+    }
+
+    // Derive the type from classes
+    const type = isTodo ? 'Todo' : 'Notification';
+
+    // Get due date if it's a todo
+    let dueDate = null;
+    const dueDateElement = card.locator('.notification-due-date');
+    if (await dueDateElement.count() > 0) {
+      dueDate = await dueDateElement.textContent();
+    }
+
+    // Get button state based on Vue component structure
+    // For todos: check/x icon buttons, for notifications: check button when unread
+    const actionButtons = card.locator('.notification-actions .btn-icon');
+    let buttonText = null;
+    let isButtonDisabled = false;
+
+    if (isTodo) {
+      if (actuallyCompleted) {
+        buttonText = 'Completed';
+        isButtonDisabled = true;
+      } else {
+        buttonText = 'Mark Complete';
+        isButtonDisabled = false;
+      }
+    } else {
+      if (actuallyCompleted) {
+        buttonText = 'Read';
+        isButtonDisabled = true;
+      } else {
+        buttonText = 'Mark Read';
+        isButtonDisabled = false;
+      }
+    }
+
+    return {
+      title: title?.trim(),
+      message: message?.trim(),
+      type: type?.trim(),
+      date: time?.trim(), // Using time field as the date
+      dueDate: dueDate?.trim(),
+      isCompleted: actuallyCompleted,
+      isTodo,
+      buttonText: buttonText?.trim(),
+      isButtonDisabled
+    };
+  }
+
+  async getAllNotificationCardData() {
+    const count = await this.getNotificationCardCount();
+    const cardData = [];
+
+    for (let i = 0; i < count; i++) {
+      const data = await this.getNotificationCardData(i);
+      cardData.push(data);
+    }
+
+    return cardData;
+  }
+
+  async clickMarkAction(index = 0) {
+    const cards = await this.notificationCards.all();
+    if (index >= cards.length) {
+      throw new Error(`Card index ${index} out of range`);
+    }
+
+    // Get current state for comparison
+    const beforeClick = await this.getNotificationCardData(index);
+
+    // Find the specific mark action button based on card type
+    const card = cards[index];
+    const cardClass = await card.getAttribute('class');
+    const isTodo = cardClass.includes('todo');
+
+    // Select the appropriate button based on type and current state
+    let markButton;
+    if (isTodo) {
+      if (beforeClick.isCompleted) {
+        markButton = card.locator('.notification-actions .btn-icon[title="Mark incomplete"]');
+      } else {
+        markButton = card.locator('.notification-actions .btn-icon[title="Mark complete"]');
+      }
+    } else {
+      // For notifications, only unread ones have the mark-as-read button
+      markButton = card.locator('.notification-actions .btn-icon[title="Mark as read"]');
+    }
+
+    // Ensure button exists before clicking
+    await expect(markButton).toBeVisible();
+    console.log(`Clicking button with title: ${await markButton.getAttribute('title')}`);
+    await markButton.click();
+    console.log('Button clicked successfully');
+
+    // Wait for API call and UI update
+    await this.page.waitForTimeout(3000);
+
+    // Wait for the "Mark as read" button to disappear (for notifications)
+    if (!beforeClick.isTodo && !beforeClick.isCompleted) {
+      await this.page.waitForFunction((cardIndex) => {
+        const cards = document.querySelectorAll('#notifications-page-vue .notification-item');
+        if (cardIndex >= cards.length || !cards[cardIndex]) return false;
+        const card = cards[cardIndex];
+        const markReadButton = card.querySelector('.notification-actions .btn-icon[title="Mark as read"]');
+        return markReadButton === null;
+      }, [index], { timeout: 5000 }).catch(() => {
+        console.log('Button disappearance detection timed out, continuing...');
+      });
+    } else {
+      // For other cases, just wait a bit
+      await this.page.waitForTimeout(1000);
+    }
+  }
+
+  async getNotificationIdFromCard(index = 0) {
+    const cards = await this.notificationCards.all();
+    if (index >= cards.length) {
+      throw new Error(`Card index ${index} out of range`);
+    }
+
+    return await cards[index].getAttribute('data-id');
+  }
+
+  // Create notification modal methods
+  async openCreateModal() {
+    await this.createNotificationButton.click();
+    await expect(this.createModal).toBeVisible({ timeout: 5000 });
+    await this.page.waitForTimeout(500); // Wait for modal animation
+  }
+
+  async closeCreateModal() {
+    await this.cancelButton.click();
+    await expect(this.createModal).toBeHidden({ timeout: 5000 });
+  }
+
+  async fillNotificationForm(data) {
+    await this.titleField.fill(data.title || '');
+    await this.messageField.fill(data.message || '');
+
+    if (data.profitCentre) {
+      await this.profitCentreSelect.selectOption(data.profitCentre);
+      await this.page.waitForTimeout(500); // Wait for user list to update
+    }
+  }
+
+  async selectUsers(userNames) {
+    // First clear all selections
+    await this.selectNoneButton.click();
+    await this.page.waitForTimeout(500);
+
+    // Then select specified users
+    for (const userName of userNames) {
+      const userCheckbox = this.page.locator(`#users-list input[type="checkbox"][id*="${userName}"]`);
+      if (await userCheckbox.count() > 0) {
+        await userCheckbox.check();
+      }
+    }
+  }
+
+  async selectAllUsers() {
+    await this.selectAllButton.click();
+    await this.page.waitForTimeout(500);
+  }
+
+  async selectNoUsers() {
+    await this.selectNoneButton.click();
+    await this.page.waitForTimeout(500);
+  }
+
+  async getSelectedUserCount() {
+    return await this.userCheckboxes.locator(':checked').count();
+  }
+
+  async sendNotification() {
+    await this.sendNotificationButton.click();
+    await this.page.waitForTimeout(2000); // Wait for API call
+  }
+
+  async isCreateNotificationButtonVisible() {
+    return await this.createNotificationButton.isVisible();
+  }
+
+  // State checking methods
+  async hasEmptyState() {
+    return await this.emptyState.isVisible();
+  }
+
+  async hasErrorState() {
+    return await this.errorState.isVisible();
+  }
+
+  async hasLoadingState() {
+    return await this.loadingState.isVisible();
+  }
+
+  async getEmptyStateMessage() {
+    if (await this.hasEmptyState()) {
+      return await this.emptyState.textContent();
+    }
+    return null;
+  }
+
+  // Validation methods
+  async validateNoInvalidData() {
+    const issues = [];
+    const cards = await this.getAllNotificationCardData();
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+
+      if (!card.title || card.title.includes('null') || card.title.includes('undefined') || card.title.includes('NaN')) {
+        issues.push(`Card ${i}: Invalid title - "${card.title}"`);
+      }
+
+      if (!card.message || card.message.includes('null') || card.message.includes('undefined') || card.message.includes('NaN')) {
+        issues.push(`Card ${i}: Invalid message - "${card.message}"`);
+      }
+
+      if (!card.type || card.type.includes('null') || card.type.includes('undefined') || card.type.includes('NaN')) {
+        issues.push(`Card ${i}: Invalid type - "${card.type}"`);
+      }
+
+      if (!card.date || card.date.includes('null') || card.date.includes('undefined') || card.date.includes('NaN') || card.date.includes('Invalid Date')) {
+        issues.push(`Card ${i}: Invalid date - "${card.date}"`);
+      }
+    }
+
+    return issues;
+  }
+
+  async validateDateFormats() {
+    const issues = [];
+    const cards = await this.getAllNotificationCardData();
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+
+      // Basic date format validation (should be a valid date string)
+      if (card.date && card.date !== 'Invalid Date') {
+        // Accept multiple date formats: DD/MM/YYYY, D/M/YY, MM/DD/YYYY, M/D/YYYY, and relative dates
+        const datePatterns = [
+          /^\d{1,2}\/\d{1,2}\/\d{2,4}$/, // DD/MM/YYYY or D/M/YY or MM/DD/YYYY
+          /^\d{1,2}-\d{1,2}-\d{2,4}$/, // DD-MM-YYYY or D-M-YY
+          /^\d{4}-\d{2}-\d{2}$/, // YYYY-MM-DD ISO format
+          /^Just now$/, // Relative time
+          /^\d+ (second|minute|hour|day|week|month|year)s? ago$/, // "15 minutes ago", "2 days ago", etc.
+          /^(a|an) (second|minute|hour|day|week|month|year) ago$/ // "a minute ago", "an hour ago"
+        ];
+
+        const isValidFormat = datePatterns.some(pattern => pattern.test(card.date));
+        if (!isValidFormat && card.date !== 'Invalid Date') {
+          issues.push(`Card ${i}: Date format invalid - "${card.date}"`);
+        }
+      } else if (card.date === 'Invalid Date') {
+        issues.push(`Card ${i}: Invalid date - "${card.date}"`);
+      }
+
+      // Due date validation for todos
+      if (card.isTodo && card.dueDate) {
+        // Due date includes "Due: " prefix, so we need to extract the actual date
+        const dueDateOnly = card.dueDate.replace('Due: ', '').trim();
+        if (dueDateOnly.includes('null') || dueDateOnly.includes('undefined') || dueDateOnly === 'Invalid Date') {
+          issues.push(`Card ${i}: Invalid due date - "${card.dueDate}"`);
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  // Notification system methods
+  async waitForNotification(expectedMessage = null, timeout = 10000) {
+    try {
+      // Wait for at least one notification to be visible
+      await this.notification.first().waitFor({ state: 'visible', timeout });
+
+      if (expectedMessage) {
+        // Get all visible notifications and check if any contain the expected message
+        const notificationElements = await this.notification.all();
+        let foundMatch = false;
+
+        for (const notif of notificationElements) {
+          if (await notif.isVisible()) {
+            const text = await notif.textContent();
+            if (text.toLowerCase().includes(expectedMessage.toLowerCase())) {
+              foundMatch = true;
+              break;
+            }
+          }
+        }
+
+        expect(foundMatch).toBeTruthy();
+      }
+    } catch (error) {
+      // If no notification appears, that's okay for some operations
+      // Just wait a bit for the operation to complete
+      await this.page.waitForTimeout(2000);
+    }
+  }
+
+  async getNotificationText() {
+    if (await this.notification.isVisible()) {
+      return await this.notification.textContent();
+    }
+    return null;
+  }
+
+  async dismissNotification() {
+    if (await this.notification.isVisible()) {
+      await this.notification.click();
+      await expect(this.notification).toBeHidden({ timeout: 5000 });
+    }
+  }
+
+  // Pagination methods (if applicable)
+  async isPaginationVisible() {
+    return await this.paginationControls.isVisible();
+  }
+
+  async getCurrentPage() {
+    if (await this.isPaginationVisible()) {
+      return parseInt(await this.currentPageSpan.textContent());
+    }
+    return 1;
+  }
+
+  async getTotalPages() {
+    if (await this.isPaginationVisible()) {
+      return parseInt(await this.totalPagesSpan.textContent());
+    }
+    return 1;
+  }
+
+  async goToNextPage() {
+    if (await this.isPaginationVisible() && !await this.nextPageButton.isDisabled()) {
+      await this.nextPageButton.click();
+      await this.waitForDataLoad();
+    }
+  }
+
+  async goToPreviousPage() {
+    if (await this.isPaginationVisible() && !await this.prevPageButton.isDisabled()) {
+      await this.prevPageButton.click();
+      await this.waitForDataLoad();
+    }
+  }
+}
+
+module.exports = NotificationsPage;

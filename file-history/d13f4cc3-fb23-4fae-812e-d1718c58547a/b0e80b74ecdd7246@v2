@@ -1,0 +1,68 @@
+const { generateComplianceParagraphs } = require('../../../../api/processors/standard/disclaimer-generator');
+const ProjectModel = require('../../../../api/models/project-model');
+
+describe('Disclaimer Generator', () => {
+  test('should return array of paragraphs', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  test('should include disclaimer title', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const disclaimer = result.find(p => p.title && p.title.includes('Disclaimer'));
+    expect(disclaimer).toBeDefined();
+  });
+
+  test('should include C/AS2 references', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasCAS2Reference = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('C/AS2'))
+    );
+    expect(hasCAS2Reference).toBe(true);
+  });
+
+  test('should include client authorization statement', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasClientAuth = result.some(p =>
+      (typeof p.content === 'string' && p.content.toLowerCase().includes('client'))
+    );
+    expect(hasClientAuth).toBe(true);
+  });
+
+  test('should include property protection disclaimer', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasPropertyDisclaimer = result.some(p =>
+      (typeof p.content === 'string' && p.content.toLowerCase().includes('property'))
+    );
+    expect(hasPropertyDisclaimer).toBe(true);
+  });
+
+  test('all paragraphs should have required structure', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    result.forEach(paragraph => {
+      expect(paragraph).toHaveProperty('title');
+      expect(paragraph).toHaveProperty('type');
+      expect(paragraph).toHaveProperty('content');
+      expect(paragraph).toHaveProperty('timestamp');
+    });
+  });
+});

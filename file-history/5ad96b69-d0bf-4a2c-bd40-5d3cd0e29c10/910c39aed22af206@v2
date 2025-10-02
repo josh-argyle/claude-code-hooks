@@ -1,0 +1,44 @@
+/**
+ * Note 3 Evaluator - SI Dual Water Supply Requirement
+ *
+ * From CAS2 Table 2.2 Note 3:
+ * "Dual water supply is required where there are more than 100 people receiving
+ * hospital care or in detention."
+ *
+ * This note applies to SI (Special Institution) risk group and adds a dual water
+ * supply requirement when care/detention occupant count exceeds 100.
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'SI' for this note to apply)
+ * @param {number} [firecell.hospitalCareDetentionCount] - Number of people receiving care or in detention
+ * @param {Object} [buildingParams] - Building-level parameters (not used for this note)
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.requiresDualSupply] - Whether the firecell requires dual water supply (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote3(firecell, buildingParams) {
+  // Note 3 only applies to SI (Special Institution) risk group
+  if (firecell.riskGroup !== 'SI') {
+    return { applies: false };
+  }
+
+  // Check care/detention count condition - must be greater than 100 to require dual supply
+  const requiresDualSupply =
+    typeof firecell.hospitalCareDetentionCount === 'number' &&
+    isFinite(firecell.hospitalCareDetentionCount) &&
+    firecell.hospitalCareDetentionCount > 100;
+
+  // Generate appropriate reason message
+  const reason = requiresDualSupply
+    ? '>100 people in care/detention - dual water supply required'
+    : 'Standard sprinkler supply acceptable';
+
+  return {
+    applies: true,
+    requiresDualSupply,
+    reason,
+  };
+}
+
+module.exports = evaluateNote3;

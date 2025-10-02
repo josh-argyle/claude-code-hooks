@@ -1,0 +1,218 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+const { getOccupantDensityOptions } = require('./api/data');
+const { processPipeline } = require('./api/pipeline');
+const ProjectModel = require('./api/models/project-model');
+const { formatDate } = require('./api/utilities/date-utils');
+
+const app = express();
+const port = 3000;
+
+// Set up Pug as the view engine
+app.set('view engine', 'pug');
+app.set('views', path.join(__dirname, 'views'));
+
+// Middleware
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(express.static('public'));
+
+// In-memory storage for processing results (in production, use a database)
+const processedResults = new Map();
+
+// Routes
+app.get('/', (req, res) => {
+  const occupantTypes = getOccupantDensityOptions();
+  const riskGroups = ['SM', 'SI', 'CA', 'WB', 'WS', 'VP'];
+
+  res.render('project-form', {
+    title: 'Fire Safety Compliance Form',
+    occupantTypes,
+    riskGroups
+  });
+});
+
+app.post('/process', (req, res) => {
+  try {
+    // Create project model from form data
+    const projectModel = new ProjectModel();
+
+    // Set project-level properties
+    if (req.body.hasRemoteReceivingCentreConnection !== '') {
+      projectModel.hasRemoteReceivingCentreConnection = req.body.hasRemoteReceivingCentreConnection === 'true';
+    }
+    projectModel.storesHazardousGoods = req.body.storesHazardousGoods;
+
+    // Extract and store project/client identification
+    if (req.body.projectName) {
+      projectModel.projectName = req.body.projectName.trim();
+    }
+    if (req.body.clientName) {
+      projectModel.clientName = req.body.clientName.trim();
+    }
+    if (req.body.clientAddress) {
+      projectModel.clientAddress = req.body.clientAddress.trim();
+    }
+
+    // Set building vertical structure
+    if (req.body.numberOfFloorsAboveGround !== undefined) {
+      projectModel.numberOfFloorsAboveGround = parseInt(req.body.numberOfFloorsAboveGround) || 0;
+    }
+    if (req.body.numberOfBasementLevels !== undefined) {
+      projectModel.numberOfBasementLevels = parseInt(req.body.numberOfBasementLevels) || 0;
+    }
+
+    // C/AS2 scope validation (Para 1.1.2)
+    if (req.body.confirmedNoComplexFeatures !== undefined) {
+      projectModel.confirmedNoComplexFeatures = req.body.confirmedNoComplexFeatures === 'on' || req.body.confirmedNoComplexFeatures === true;
+    }
+
+    // NEW: Store NZS 4515 scope flag at project level (if provided)
+    if (req.body.isWithinNZS4515Scope !== undefined && req.body.isWithinNZS4515Scope !== '') {
+      projectModel.isWithinNZS4515Scope = req.body.isWithinNZS4515Scope === 'true';
+    }
+
+    // Process firecells
+    const firecells = Array.isArray(req.body.firecells) ? req.body.firecells : [req.body.firecells];
+
+    firecells.forEach(firecellData => {
+      if (firecellData && firecellData.riskGroup) {
+        const firecell = {
+          riskGroup: firecellData.riskGroup,
+          escapeHeight: parseFloat(firecellData.escapeHeight),
+          isSprinklered: firecellData.isSprinklered === 'true',
+          floorArea: parseFloat(firecellData.floorArea),
+          floor: firecellData.floor
+        };
+
+        // NEW: Escape route configuration
+        if (firecellData.numberOfEscapeRoutes) {
+          firecell.numberOfEscapeRoutes = parseInt(firecellData.numberOfEscapeRoutes);
+        }
+
+        // SM/SI: Use sleepingOccupantType (NO occupantType)
+        if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+          // Get the sleeping behavior type from form
+          firecell.sleepingOccupantType = firecellData.sleepingOccupantType;
+
+          // SM/SI use bed spaces (manual entry)
+          if (firecellData.occupantLoad) {
+            firecell.occupantLoad = parseFloat(firecellData.occupantLoad);
+          }
+
+          // NEW: Max beds per route
+          if (firecellData.maxEscapeRouteBeds) {
+            firecell.maxEscapeRouteBeds = parseInt(firecellData.maxEscapeRouteBeds);
+          }
+        } else {
+          // CA/WB/WS/VP: Use occupantType for density calculation
+          firecell.occupantType = firecellData.occupantType;
+
+          // occupantLoad will be calculated by occupant-load processor
+
+          // NEW: Max occupants per route
+          if (firecellData.maxEscapeRouteOccupants) {
+            firecell.maxEscapeRouteOccupants = parseInt(firecellData.maxEscapeRouteOccupants);
+          }
+        }
+
+        // Add risk group specific fields
+        if (firecellData.riskGroup === 'VP' && firecellData.hasVehicleStacker !== undefined) {
+          firecell.hasVehicleStacker = firecellData.hasVehicleStacker === 'true';
+        }
+
+        if (firecellData.riskGroup === 'CA' && firecellData.isCinemaOrTheatre !== undefined) {
+          firecell.isCinemaOrTheatre = firecellData.isCinemaOrTheatre === 'true';
+        }
+
+        // Add CA early childhood centre fields
+        if (firecellData.riskGroup === 'CA') {
+          if (firecellData.isEarlyChildhoodCentre !== undefined) {
+            firecell.isEarlyChildhoodCentre = firecellData.isEarlyChildhoodCentre === 'true';
+          }
+          if (firecellData.hasDedicatedSleepingAreas !== undefined) {
+            firecell.hasDedicatedSleepingAreas = firecellData.hasDedicatedSleepingAreas === 'true';
+          }
+          if (firecellData.supplementarySmokeDetectorsCompliant !== undefined) {
+            firecell.supplementarySmokeDetectorsCompliant = firecellData.supplementarySmokeDetectorsCompliant === 'true';
+          }
+          if (firecellData.placesOfSafetyCompliant !== undefined) {
+            firecell.placesOfSafetyCompliant = firecellData.placesOfSafetyCompliant === 'true';
+          }
+        }
+
+        // WB/VP: Distance from boundary (Table 2.1 Note 2, Table 2.4 Note 2)
+        if ((firecellData.riskGroup === 'WB' || firecellData.riskGroup === 'VP') &&
+            firecellData.distanceFromBoundary15mOrMore !== undefined &&
+            firecellData.distanceFromBoundary15mOrMore !== '') {
+          firecell.distanceFromBoundary15mOrMore = firecellData.distanceFromBoundary15mOrMore === 'true';
+        }
+
+        // NEW: Add NZS 4515 sprinkler flag
+        if (firecellData.usesNZS4515Sprinklers !== undefined) {
+          firecell.usesNZS4515Sprinklers = firecellData.usesNZS4515Sprinklers === 'true' ||
+                                            firecellData.usesNZS4515Sprinklers === true;
+        }
+
+        // NEW: Add installed fire safety systems
+        if (firecellData.installedFireSafetySystems) {
+          // Handle both array and single value (form may submit as single value if only one selected)
+          let installed = Array.isArray(firecellData.installedFireSafetySystems)
+            ? firecellData.installedFireSafetySystems
+            : [firecellData.installedFireSafetySystems];
+
+          // Remove 'none' if other systems are selected (defensive programming)
+          if (installed.length > 1) {
+            installed = installed.filter(sys => sys !== 'none');
+          }
+
+          firecell.installedFireSafetySystems = installed;
+        }
+
+        projectModel.addFirecell(firecell);
+      }
+    });
+
+    // Process through pipeline
+    const processedModel = processPipeline(projectModel, 'fire-report');
+
+    // Store result with a unique ID
+    const resultId = Date.now().toString();
+    processedResults.set(resultId, processedModel);
+
+    // Redirect to results page
+    res.redirect(`/results/${resultId}`);
+
+  } catch (error) {
+    console.error('Processing error:', error);
+    res.status(400).render('error', {
+      title: 'Processing Error',
+      error: error.message
+    });
+  }
+});
+
+app.get('/results/:id', (req, res) => {
+  const resultId = req.params.id;
+  const processedModel = processedResults.get(resultId);
+
+  if (!processedModel) {
+    return res.status(404).render('error', {
+      title: 'Results Not Found',
+      error: 'The requested results could not be found.'
+    });
+  }
+
+  res.render('results', {
+    title: 'Fire Safety Compliance Document',
+    documentDate: formatDate(new Date(), 'dd MMMM yyyy'),
+    project: processedModel
+  });
+});
+
+app.listen(port, () => {
+  console.log(`Fire Safety Compliance server running at http://localhost:${port}`);
+});
+
+module.exports = app;

@@ -1,0 +1,101 @@
+const { generateComplianceParagraphs } = require('../../../../api/processors/standard/legal-requirements-generator');
+const ProjectModel = require('../../../../api/models/project-model');
+
+describe('Legal Requirements Generator', () => {
+  test('should return array of paragraphs', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  test('should include legal requirements title', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const legal = result.find(p => p.title && p.title.includes('Legal Requirements'));
+    expect(legal).toBeDefined();
+  });
+
+  test('should include C/AS2 references', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasCAS2Reference = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('C/AS2'))
+    );
+    expect(hasCAS2Reference).toBe(true);
+  });
+
+  test('should include Building Act 2004 references', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasBuildingAct = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('Building Act 2004'))
+    );
+    expect(hasBuildingAct).toBe(true);
+  });
+
+  test('should include Section 49 reference', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasSection49 = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('Section 49'))
+    );
+    expect(hasSection49).toBe(true);
+  });
+
+  test('should include Section 17 reference', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasSection17 = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('Section 17'))
+    );
+    expect(hasSection17).toBe(true);
+  });
+
+  test('should include Unit Title provisions (Section 116A)', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasUnitTitle = result.some(p =>
+      (typeof p.content === 'string' && p.content.includes('116A'))
+    );
+    expect(hasUnitTitle).toBe(true);
+  });
+
+  test('should include FENZ notification requirements', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const hasFENZ = result.some(p =>
+      (typeof p.content === 'string' && p.content.toLowerCase().includes('fire and emergency'))
+    );
+    expect(hasFENZ).toBe(true);
+  });
+
+  test('all paragraphs should have required structure', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    result.forEach(paragraph => {
+      expect(paragraph).toHaveProperty('title');
+      expect(paragraph).toHaveProperty('type');
+      expect(paragraph).toHaveProperty('content');
+      expect(paragraph).toHaveProperty('timestamp');
+    });
+  });
+});

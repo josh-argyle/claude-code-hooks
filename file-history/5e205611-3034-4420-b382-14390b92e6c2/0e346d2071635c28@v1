@@ -1,0 +1,588 @@
+/* global Chart */
+const { expect } = require('@playwright/test');
+
+class LabourForecastingPage {
+  constructor(page) {
+    this.page = page;
+
+    // Page header elements
+    this.pageTitle = page.locator('h1.page-title');
+    this.toggleVisibilityButton = page.locator('#toggle-visibility-btn');
+    this.rollForwardButton = page.locator('#roll-forward-btn');
+
+    // Week navigation
+    this.prevWeekBtn = page.locator('#prev-week-btn');
+    this.nextWeekBtn = page.locator('#next-week-btn');
+    this.thisWeekBtn = page.locator('#this-week-btn');
+    this.weekDate = page.locator('.week-date');
+
+    // Panels
+    this.graphsPanel = page.locator('.graphs-panel');
+    this.dataEntryPanel = page.locator('.data-entry-panel');
+    this.breakdownPanel = page.locator('.breakdown-panel');
+    this.projectsPanel = page.locator('.projects-panel');
+
+    // Charts (in Analytics Dashboard)
+    this.dailyCapacityChart = page.locator('#dailyCapacityChart');
+    this.weeklyCapacityChart = page.locator('#weeklyCapacityChart');
+    this.foremanWorkloadChart = page.locator('#foremanWorkloadChart');
+    this.profitCentreAllocatedChart = page.locator('#profitCentreAllocatedChart');
+    this.profitCentreUnallocatedChart = page.locator('#profitCentreUnallocatedChart');
+
+    // Chart loading/error states
+    this.dailyCapacityLoading = page.locator('#dailyCapacityLoading');
+    this.weeklyCapacityLoading = page.locator('#weeklyCapacityLoading');
+    this.foremanWorkloadLoading = page.locator('#foremanWorkloadLoading');
+    this.profitCentreAllocatedLoading = page.locator('#profitCentreAllocatedLoading');
+    this.profitCentreUnallocatedLoading = page.locator('#profitCentreUnallocatedLoading');
+
+    // Projects table
+    this.projectsTable = page.locator('.projects-table');
+    this.projectRows = page.locator('.projects-table tbody tr');
+    this.visibleProjectsList = page.locator('#visible-projects-list');
+
+    // Staff availability
+    this.staffAvailabilityList = page.locator('#staff-availability-list');
+    this.staffAvailableInput = page.locator('#staff-staff_available');
+    this.hrsPerWorkDayInput = page.locator('#staff-hrs_per_work_day');
+
+    // Profit centre data sections
+    this.contractorAvailabilityList = page.locator('#contractor-availability-list');
+    this.holidaysList = page.locator('#holidays-list');
+    this.staffLoanList = page.locator('#staff-loan-list');
+
+    // Breakdown display
+    this.breakdownDisplay = page.locator('#breakdown-display');
+    this.breakdownTable = page.locator('.breakdown-table');
+
+    // Error handling
+    this.errorMessage = page.locator('.error, .text-danger, .alert-danger');
+    this.accessDeniedMessage = page.locator('text=Access denied');
+
+    // Notifications
+    this.notification = page.locator('.notification');
+  }
+
+  // Navigation methods
+  async navigate() {
+    await this.page.goto('/labour-forecasting');
+  }
+
+  async waitForPageLoad() {
+    await this.page.waitForLoadState('networkidle');
+    await expect(this.pageTitle).toBeVisible({ timeout: 10000 });
+    // Wait for initial data to load
+    await this.page.waitForTimeout(1000);
+  }
+
+  // Permission checking methods
+  async isAccessDenied() {
+    try {
+      await this.accessDeniedMessage.waitFor({ state: 'visible', timeout: 5000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async getErrorMessage() {
+    if (await this.errorMessage.isVisible()) {
+      return await this.errorMessage.textContent();
+    }
+    return null;
+  }
+
+  async isOnLoginPage() {
+    return this.page.url().includes('/login');
+  }
+
+  // Panel interaction methods
+  async expandAnalyticsPanel() {
+    // Check if panel is collapsed
+    const isCollapsed = await this.graphsPanel.evaluate(el => el.classList.contains('collapsed'));
+    if (isCollapsed) {
+      await this.graphsPanel.click();
+      await expect(this.graphsPanel).toHaveClass(/expanded/, { timeout: 10000 });
+
+      // Force chart initialization if needed
+      const initResult = await this.page.evaluate(() => {
+        const result = {
+          loadGraphsDataExists: typeof loadGraphsData === 'function',
+          chartsInitialized: window.chartsInitialized,
+          called: false
+        };
+
+        // If loadGraphsData function exists and charts aren't initialized, call it
+        if (typeof window.loadGraphsData === 'function' && !window.chartsInitialized) {
+          console.log('Forcing loadGraphsData call');
+          try {
+            window.loadGraphsData();
+            result.called = true;
+          } catch (error) {
+            result.error = error.message;
+          }
+        }
+        return result;
+      });
+      console.log('Init result:', initResult);
+
+      // Wait for network requests to complete after expanding
+      await this.page.waitForLoadState('networkidle', { timeout: 10000 });
+      // Wait longer for chart rendering after API call
+      await this.page.waitForTimeout(5000);
+    }
+  }
+
+  async collapseAnalyticsPanel() {
+    const isExpanded = await this.graphsPanel.evaluate(el => el.classList.contains('expanded'));
+    if (isExpanded) {
+      await this.graphsPanel.locator('.panel-header').click();
+      await expect(this.graphsPanel).toHaveClass(/collapsed/);
+    }
+  }
+
+  async expandDataEntryPanel() {
+    const isCollapsed = await this.dataEntryPanel.evaluate(el => el.classList.contains('collapsed'));
+    if (isCollapsed) {
+      await this.dataEntryPanel.click();
+      await expect(this.dataEntryPanel).toHaveClass(/expanded/, { timeout: 10000 });
+      await this.page.waitForTimeout(500);
+    }
+  }
+
+  async expandBreakdownPanel() {
+    const isCollapsed = await this.breakdownPanel.evaluate(el => el.classList.contains('collapsed'));
+    if (isCollapsed) {
+      await this.breakdownPanel.click();
+      await expect(this.breakdownPanel).toHaveClass(/expanded/, { timeout: 10000 });
+      await this.page.waitForTimeout(500);
+    }
+  }
+
+  async expandProjectsPanel() {
+    const isCollapsed = await this.projectsPanel.evaluate(el => el.classList.contains('collapsed'));
+    if (isCollapsed) {
+      await this.projectsPanel.click();
+      await expect(this.projectsPanel).toHaveClass(/expanded/, { timeout: 10000 });
+      await this.page.waitForTimeout(500);
+    }
+  }
+
+  // Chart methods
+  async waitForChartsToLoad() {
+    // First ensure the Analytics panel is expanded
+    await this.expandAnalyticsPanel();
+
+    // Debug: Check what's happening with charts after expansion
+    const debugInfo = await this.page.evaluate(() => {
+      return {
+        chartsObject: !!window.charts,
+        chartKeys: window.charts ? Object.keys(window.charts) : [],
+        chartsInitialized: window.chartsInitialized,
+        profitCentreGraphsData: !!window.profitCentreGraphsData,
+        chartJsLoaded: typeof Chart !== 'undefined',
+        dailyCapacityChartExists: !!document.getElementById('dailyCapacityChart'),
+        canvasHasChart: !!(document.getElementById('dailyCapacityChart') && Chart.getChart && Chart.getChart(document.getElementById('dailyCapacityChart')))
+      };
+    });
+    console.log('Chart debug info after expansion:', debugInfo);
+
+    // Wait for loading states to disappear (max 10 seconds)
+    await Promise.race([
+      this.page.waitForFunction(
+        () => {
+          const loadingElements = [
+            document.getElementById('dailyCapacityLoading'),
+            document.getElementById('weeklyCapacityLoading'),
+            document.getElementById('foremanWorkloadLoading'),
+            document.getElementById('profitCentreAllocatedLoading'),
+            document.getElementById('profitCentreUnallocatedLoading')
+          ];
+          // All loading elements should be hidden
+          return loadingElements.every(el => !el || el.style.display === 'none' || el.classList.contains('hidden'));
+        },
+        { timeout: 10000 }
+      ).catch(() => console.log('Loading states still visible after 10s')),
+      this.page.waitForTimeout(10000)
+    ]);
+
+    // Check if charts are visible
+    const chartsVisible = await Promise.all([
+      this.dailyCapacityChart.isVisible(),
+      this.weeklyCapacityChart.isVisible(),
+      this.foremanWorkloadChart.isVisible(),
+      this.profitCentreAllocatedChart.isVisible(),
+      this.profitCentreUnallocatedChart.isVisible()
+    ]);
+
+    // Wait for charts to be populated in window.charts
+    await this.page.waitForFunction(
+      () => {
+        // Check if window.charts exists and has at least one chart
+        if (!window.charts) return false;
+
+        const requiredCharts = ['dailyCapacity', 'weeklyCapacity', 'foremanWorkload',
+          'profitCentreAllocated', 'profitCentreUnallocated'];
+
+        // Check if at least some charts are present
+        const chartsFound = requiredCharts.filter(chartKey =>
+          window.charts[chartKey] && window.charts[chartKey].data
+        );
+
+        // Also check if chartsInitialized flag is set
+        return chartsFound.length > 0 || window.chartsInitialized === true;
+      },
+      { timeout: 15000 }
+    ).catch(() => {
+      // If charts aren't initialized via window.charts, that's okay
+      // The getChartData method will try other methods
+      console.log('Charts not found in window.charts after 15s, will try alternative methods');
+    });
+
+    // Final check of chart state
+    const finalState = await this.page.evaluate(() => {
+      return {
+        chartKeys: window.charts ? Object.keys(window.charts) : [],
+        chartsInitialized: window.chartsInitialized
+      };
+    });
+    console.log('Final chart state:', finalState);
+
+    // Return whether all charts are visible
+    return chartsVisible.every(visible => visible);
+  }
+
+  async getChartData(chartId) {
+    return await this.page.evaluate((id) => {
+      // Try multiple ways to get the chart instance
+      const canvas = document.getElementById(id);
+      if (!canvas) return null;
+
+      // Method 1: Try Chart.getChart (if Chart.js properly tracks it)
+      if (typeof Chart !== 'undefined' && Chart.getChart) {
+        const chartFromRegistry = Chart.getChart(canvas);
+        if (chartFromRegistry) {
+          return {
+            labels: chartFromRegistry.data.labels,
+            datasets: chartFromRegistry.data.datasets.map(dataset => ({
+              label: dataset.label,
+              data: [...dataset.data], // Create copy of array
+              backgroundColor: dataset.backgroundColor,
+              borderColor: dataset.borderColor
+            }))
+          };
+        }
+      }
+
+      // Method 2: Check if charts are stored in window.charts object
+      if (window.charts) {
+        // Map canvas ID to chart property name
+        const chartMap = {
+          dailyCapacityChart: 'dailyCapacity',
+          weeklyCapacityChart: 'weeklyCapacity',
+          foremanWorkloadChart: 'foremanWorkload',
+          profitCentreAllocatedChart: 'profitCentreAllocated',
+          profitCentreUnallocatedChart: 'profitCentreUnallocated'
+        };
+
+        const chartKey = chartMap[id];
+        if (chartKey && window.charts[chartKey]) {
+          const chart = window.charts[chartKey];
+          return {
+            labels: chart.data.labels,
+            datasets: chart.data.datasets.map(dataset => ({
+              label: dataset.label,
+              data: [...dataset.data], // Create copy of array
+              backgroundColor: dataset.backgroundColor,
+              borderColor: dataset.borderColor
+            }))
+          };
+        }
+      }
+
+      // Method 3: Check if chart is stored as a property on the canvas element
+      if (canvas.chart) {
+        return {
+          labels: canvas.chart.data.labels,
+          datasets: canvas.chart.data.datasets.map(dataset => ({
+            label: dataset.label,
+            data: [...dataset.data], // Create copy of array
+            backgroundColor: dataset.backgroundColor,
+            borderColor: dataset.borderColor
+          }))
+        };
+      }
+
+      return null;
+    }, chartId);
+  }
+
+  // Data extraction methods
+  async getProjectsTableData() {
+    await this.expandProjectsPanel();
+
+    const projects = [];
+    const rows = await this.projectRows.all();
+
+    for (const row of rows) {
+      const projectCode = await row.getAttribute('data-project-code');
+      if (!projectCode) continue;
+
+      // Get project info
+      const projectInfo = await row.locator('.project-info-column').textContent();
+      const [_, ...descParts] = projectInfo.split('\n').map(s => s.trim()).filter(s => s);
+
+      // Get foreman
+      const foremanSelect = row.locator('.foreman-select');
+      const foremanId = await foremanSelect.inputValue();
+      const foremanName = await foremanSelect.locator('option:checked').textContent();
+
+      // Get all labour values
+      const labourData = {};
+      const fields = ['mon_am', 'mon_pm', 'tue_am', 'tue_pm', 'wed_am', 'wed_pm',
+        'thu_am', 'thu_pm', 'fri_am', 'fri_pm', 'sat'];
+
+      for (const field of fields) {
+        const input = row.locator(`input[data-field="${field}"]`);
+        const value = await input.inputValue();
+        labourData[field] = parseFloat(value) || 0;
+      }
+
+      projects.push({
+        projectCode,
+        description: descParts.join(' '),
+        foremanId,
+        foremanName: foremanName?.trim(),
+        labourData
+      });
+    }
+
+    return projects;
+  }
+
+  async getStaffAvailabilityData() {
+    await this.expandDataEntryPanel();
+
+    const staffAvailable = parseFloat(await this.staffAvailableInput.inputValue()) || 0;
+    const hrsPerWorkDay = parseFloat(await this.hrsPerWorkDayInput.inputValue()) || 8.0;
+
+    return {
+      staff_available: staffAvailable,
+      hrs_per_work_day: hrsPerWorkDay
+    };
+  }
+
+  async getProfitCentreData() {
+    await this.expandDataEntryPanel();
+
+    const data = {};
+
+    // Get contractors data
+    const contractorInput = this.contractorAvailabilityList.locator('input').first();
+    if (await contractorInput.isVisible()) {
+      data.contractors = {};
+      const fields = ['mon_am', 'mon_pm', 'tue_am', 'tue_pm', 'wed_am', 'wed_pm',
+        'thu_am', 'thu_pm', 'fri_am', 'fri_pm', 'sat'];
+
+      for (const field of fields) {
+        const input = this.contractorAvailabilityList.locator(`input[data-field="${field}"]`);
+        if (await input.isVisible()) {
+          const value = await input.inputValue();
+          data.contractors[field] = parseFloat(value) || 0;
+        }
+      }
+    }
+
+    return data;
+  }
+
+  // Calculation methods
+  async calculateExpectedDailyCapacity() {
+    const projects = await this.getProjectsTableData();
+    const staffData = await this.getStaffAvailabilityData();
+
+    const dailySlots = ['mon_am', 'mon_pm', 'tue_am', 'tue_pm', 'wed_am', 'wed_pm',
+      'thu_am', 'thu_pm', 'fri_am', 'fri_pm'];
+
+    const allocated = [];
+    const available = [];
+
+    for (const slot of dailySlots) {
+      // Sum allocated hours from all projects
+      const allocatedHours = projects.reduce((sum, project) =>
+        sum + (project.labourData[slot] || 0), 0
+      );
+
+      // Calculate available hours (half day for AM/PM slots)
+      const availableHours = staffData.staff_available * (staffData.hrs_per_work_day / 2);
+
+      allocated.push(allocatedHours);
+      available.push(availableHours);
+    }
+
+    return { allocated, available };
+  }
+
+  async calculateExpectedWeeklyCapacity() {
+    const _projects = await this.getProjectsTableData();
+    const _staffData = await this.getStaffAvailabilityData();
+
+    // Note: Week 2-5 data is now fetched from separate weekly records via API
+    // This method would need to fetch multi-week data from the API instead of DOM
+    const allocated = [];
+    const available = [];
+
+    // For now, return placeholder data since week_2-5 fields no longer exist
+    // In actual tests, this should fetch data from the graphs API
+    for (let i = 0; i < 4; i++) {
+      allocated.push(0);
+      available.push(0);
+    }
+
+    return { allocated, available };
+  }
+
+  async calculateExpectedForemanWorkload() {
+    const projects = await this.getProjectsTableData();
+
+    const partDaySlots = ['mon_am', 'mon_pm', 'tue_am', 'tue_pm', 'wed_am', 'wed_pm',
+      'thu_am', 'thu_pm', 'fri_am', 'fri_pm'];
+
+    // Group projects by foreman
+    const foremanAllocations = {};
+
+    for (const project of projects) {
+      if (!project.foremanId || !project.foremanName) continue;
+
+      if (!foremanAllocations[project.foremanId]) {
+        foremanAllocations[project.foremanId] = {
+          name: project.foremanName,
+          partDayHours: {}
+        };
+        // Initialize all slots to 0
+        for (const slot of partDaySlots) {
+          foremanAllocations[project.foremanId].partDayHours[slot] = 0;
+        }
+      }
+
+      // Add project hours to foreman totals
+      for (const slot of partDaySlots) {
+        foremanAllocations[project.foremanId].partDayHours[slot] +=
+          project.labourData[slot] || 0;
+      }
+    }
+
+    // Calculate totals per part day
+    const partDayTotals = {};
+    for (const slot of partDaySlots) {
+      partDayTotals[slot] = Object.values(foremanAllocations).reduce((sum, foreman) =>
+        sum + (foreman.partDayHours[slot] || 0), 0
+      );
+    }
+
+    // Convert to percentages for each foreman
+    const foremanList = Object.values(foremanAllocations);
+    const datasets = foremanList.map(foreman => {
+      const data = partDaySlots.map(slot => {
+        const hours = foreman.partDayHours[slot] || 0;
+        const total = partDayTotals[slot];
+        return total > 0 ? (hours / total) * 100 : 0;
+      });
+
+      return {
+        name: foreman.name,
+        data
+      };
+    });
+
+    return {
+      partDayLabels: ['Mon AM', 'Mon PM', 'Tue AM', 'Tue PM', 'Wed AM', 'Wed PM',
+        'Thu AM', 'Thu PM', 'Fri AM', 'Fri PM'],
+      datasets
+    };
+  }
+
+  // Data modification methods
+  async updateLabourHours(projectCode, field, value) {
+    await this.expandProjectsPanel();
+
+    const input = this.page.locator(`tr[data-project-code="${projectCode}"] input[data-field="${field}"]`);
+    await input.fill(value.toString());
+    await input.blur(); // Trigger save
+
+    // Wait for save to complete
+    await this.waitForAutoSave(input);
+  }
+
+  async updateStaffAvailability(field, value) {
+    await this.expandDataEntryPanel();
+
+    const input = field === 'staff_available' ? this.staffAvailableInput : this.hrsPerWorkDayInput;
+    await input.fill(value.toString());
+    await input.blur(); // Trigger save
+
+    // Wait for save to complete
+    await this.waitForAutoSave(input);
+  }
+
+  async waitForAutoSave(element) {
+    // Look for save status indicators
+    const elementId = await element.getAttribute('id');
+    if (elementId) {
+      try {
+        // Wait for saved status to appear
+        await this.page.waitForSelector('.save-status.saved', { timeout: 10000 });
+      } catch {
+        // If no save status indicator, just wait a bit
+        await this.page.waitForTimeout(2000);
+      }
+    } else {
+      await this.page.waitForTimeout(2000);
+    }
+
+    // Wait for any network requests to complete
+    await this.page.waitForLoadState('networkidle', { timeout: 10000 });
+  }
+
+  // Week navigation methods
+  async goToPreviousWeek() {
+    await this.prevWeekBtn.click();
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(1000);
+  }
+
+  async goToNextWeek() {
+    await this.nextWeekBtn.click();
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(1000);
+  }
+
+  async goToCurrentWeek() {
+    await this.thisWeekBtn.click();
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(1000);
+  }
+
+  async getCurrentWeekDisplay() {
+    return await this.weekDate.textContent();
+  }
+
+  // Notification methods
+  async waitForNotification(expectedMessage = null) {
+    await expect(this.notification).toBeVisible({ timeout: 10000 });
+
+    if (expectedMessage) {
+      const text = await this.notification.textContent();
+      expect(text.toLowerCase()).toContain(expectedMessage.toLowerCase());
+    }
+  }
+
+  async dismissNotification() {
+    if (await this.notification.isVisible()) {
+      await this.notification.click();
+      await expect(this.notification).toBeHidden({ timeout: 5000 });
+    }
+  }
+}
+
+module.exports = LabourForecastingPage;

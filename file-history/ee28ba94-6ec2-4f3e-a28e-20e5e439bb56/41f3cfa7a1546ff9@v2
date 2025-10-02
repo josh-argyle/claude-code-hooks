@@ -1,0 +1,245 @@
+extends layout
+
+block content
+  h1= title
+
+  //- Fire Safety Compliance Report
+  if project.reportParagraphs && project.reportParagraphs.length > 0
+    section.fire-safety-report
+      h2 Fire Safety Compliance Report
+
+      each paragraph in project.reportParagraphs
+        div(class=`paragraph paragraph-${paragraph.type}`)
+          if paragraph.title
+            h3.paragraph-title= paragraph.title
+
+          case paragraph.type
+            when 'info'
+              div.info-box
+                p= paragraph.content
+
+            when 'warning'
+              div.warning-box
+                p= paragraph.content
+
+            when 'danger'
+              div.danger-box
+                p= paragraph.content
+
+            when 'compliance'
+              div(class=`compliance-box compliance-${paragraph.content.status}`)
+                p= paragraph.content.content
+
+            when 'requirements'
+              div(class=`requirements-box requirements-${paragraph.content.priority}`)
+                p= paragraph.content.content
+
+            when 'table'
+              table.compliance-table
+                thead
+                  tr
+                    each header in paragraph.content.headers
+                      th= header
+                tbody
+                  each row in paragraph.content.rows
+                    tr
+                      each cell in row
+                        td= cell
+
+            when 'list'
+              if paragraph.content.listType === 'ordered'
+                ol
+                  each item in paragraph.content.items
+                    li= item
+              else
+                ul
+                  each item in paragraph.content.items
+                    li= item
+
+            when 'code'
+              pre
+                code(class=`language-${paragraph.content.language}`)= paragraph.content.code
+
+            default
+              p= paragraph.content
+
+      hr(style="margin: 40px 0; border: 1px solid #ddd;")
+
+  h2 Debug Information (Raw Data)
+
+  h3 Remote Receiving Centre
+  if project.remoteReceivingCentreCompliance
+    div
+      p
+        strong Required:
+        = project.remoteReceivingCentreCompliance.required ? 'Yes' : 'No'
+      p
+        strong Provided:
+        = project.remoteReceivingCentreCompliance.provided === 'not specified' ? 'Not specified' : (project.remoteReceivingCentreCompliance.provided ? 'Yes' : 'No')
+      p
+        strong Compliance:
+        - const compliance = project.remoteReceivingCentreCompliance
+        - const statusColor = compliance.status === 'compliant' ? 'green' : compliance.status === 'non-compliant' ? 'red' : 'orange'
+        - const statusIcon = compliance.status === 'compliant' ? '✓' : compliance.status === 'non-compliant' ? '✗' : '?'
+        span(style=`color: ${statusColor}; font-weight: bold;`)
+          = `${statusIcon} ${compliance.status.charAt(0).toUpperCase() + compliance.status.slice(1)}`
+      p(style="font-style: italic;")
+        = compliance.message
+  else
+    div
+      p
+        strong Required:
+        = project.requiresRemoteReceivingCentre ? 'Yes' : 'No'
+      p(style="color: orange; font-style: italic;") Compliance status not calculated
+
+  if project.storesHazardousGoods !== undefined
+    div
+      p
+        strong Stores Hazardous Goods:
+        = project.storesHazardousGoods ? 'Yes' : 'No'
+
+  if project.hazardousSubstancesCompliance
+    h3 Hazardous Substances Compliance
+    div
+      p
+        strong Status:
+        = project.hazardousSubstancesCompliance.status
+      if project.hazardousSubstancesCompliance.details
+        p
+          strong Details:
+          = project.hazardousSubstancesCompliance.details
+
+  h2 Firecells (#{project.firecells.length})
+
+  each firecell, index in project.firecells
+    div(style="border: 1px solid #ccc; margin: 10px 0; padding: 15px;")
+      h3 Firecell #{index + 1}
+
+      h4 Basic Information
+      div
+        p
+          strong Risk Group:
+          = firecell.riskGroup
+        p
+          strong Occupant Type:
+          = firecell.occupantType
+        p
+          strong Occupant Load:
+          = firecell.occupantLoad
+        p
+          strong Escape Height:
+          = firecell.escapeHeight + 'm'
+        p
+          strong Is Sprinklered:
+          = firecell.isSprinklered ? 'Yes' : 'No'
+        p
+          strong Floor Area:
+          = firecell.floorArea + 'm²'
+
+      if firecell.hasVehicleStacker !== undefined
+        p
+          strong Has Vehicle Stacker:
+          = firecell.hasVehicleStacker ? 'Yes' : 'No'
+
+      if firecell.isCinemaOrTheatre !== undefined
+        p
+          strong Is Cinema or Theatre:
+          = firecell.isCinemaOrTheatre ? 'Yes' : 'No'
+
+      // Display fire safety systems
+      if firecell.fireSafetySystems
+        h4 Fire Safety Systems
+        div
+          p
+            strong Required Systems:
+          ul
+            each systemCode in firecell.fireSafetySystems
+              li= systemCode
+
+      // Display processed fire safety systems
+      if firecell.processedFireSafetySystems
+        h4 Processed Fire Safety Systems
+        each processedSystem in firecell.processedFireSafetySystems
+          div(style="margin: 10px 0; padding: 10px; border: 1px solid #eee;")
+            p
+              strong System Code:
+              = processedSystem.code
+            if processedSystem.type
+              p
+                strong Type:
+                = processedSystem.type
+            if processedSystem.description
+              p
+                strong Description:
+                = processedSystem.description
+            if processedSystem.notes && processedSystem.notes.length > 0
+              p
+                strong Notes:
+              ul
+                each note in processedSystem.notes
+                  li= note
+
+      // Display compliance results
+      if firecell.compliance
+        h4 Compliance Results
+        p(style="font-size: 12px; color: #666;")
+          strong Debug - Available compliance data:
+          = JSON.stringify(firecell.compliance)
+
+        if firecell.compliance.fireSafetySystems
+          div
+            h5 Fire Safety Systems
+            if firecell.compliance.fireSafetySystems.required
+              div
+                strong Required Systems:
+                ul
+                  each system in firecell.compliance.fireSafetySystems.required
+                    li= system
+            if firecell.compliance.fireSafetySystems.compliant !== undefined
+              p
+                strong Compliant:
+                = firecell.compliance.fireSafetySystems.compliant ? 'Yes' : 'No'
+
+        if firecell.compliance.firecellFloorArea
+          div
+            h5 Firecell Floor Area
+            p
+              strong Limit:
+              = firecell.compliance.firecellFloorArea.limit
+            p
+              strong Actual:
+              = firecell.floorArea + 'm²'
+            p
+              strong Compliant:
+              = firecell.compliance.firecellFloorArea.compliant ? 'Yes' : 'No'
+
+        if firecell.compliance.fireResistance
+          div
+            h5 Fire Resistance Ratings
+            if firecell.compliance.fireResistance.lifeSafety
+              p
+                strong Life Safety Rating:
+                = firecell.compliance.fireResistance.lifeSafety + ' minutes'
+            if firecell.compliance.fireResistance.propertyProtection
+              p
+                strong Property Protection Rating:
+                = firecell.compliance.fireResistance.propertyProtection + ' minutes'
+
+        if firecell.compliance.occupantLoad
+          div
+            h5 Occupant Load
+            if firecell.compliance.occupantLoad.calculatedLoad !== undefined
+              p
+                strong Calculated Load:
+                = firecell.compliance.occupantLoad.calculatedLoad
+            if firecell.compliance.occupantLoad.providedLoad !== undefined
+              p
+                strong Provided Load:
+                = firecell.compliance.occupantLoad.providedLoad
+            if firecell.compliance.occupantLoad.compliant !== undefined
+              p
+                strong Compliant:
+                = firecell.compliance.occupantLoad.compliant ? 'Yes' : 'No'
+
+  div(style="margin-top: 30px;")
+    a(href="/") ← Back to Form

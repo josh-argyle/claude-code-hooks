@@ -1,0 +1,440 @@
+const evaluateNote1b = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-1b-evaluator');
+
+describe('Note 1b Evaluator - CA Risk Group Type 2 System Exemption', () => {
+  describe('Applicability', () => {
+    test('should not apply to SM risk group', () => {
+      const firecell = { riskGroup: 'SM' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(false);
+      expect(result.exempt).toBeUndefined();
+      expect(result.reason).toBeUndefined();
+    });
+
+    test('should not apply to WB risk group', () => {
+      const firecell = { riskGroup: 'WB' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WS risk group', () => {
+      const firecell = { riskGroup: 'WS' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to VP risk group', () => {
+      const firecell = { riskGroup: 'VP' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to SI risk group', () => {
+      const firecell = { riskGroup: 'SI' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should apply to CA risk group', () => {
+      const firecell = { riskGroup: 'CA', maxEscapeRouteOccupants: 30, floor: '1' };
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBeDefined();
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('Single Level Building Detection', () => {
+    test('should recognize single level when all CA areas on same floor', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: 'Ground'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: 'Ground', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: 'Ground', maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', floor: 'Ground', maxEscapeRouteOccupants: 20 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      // Single level + ≤50 occupants = exempt
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should recognize multi-level when CA areas on different floors', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: '2', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(false); // Multi-level = no exemption
+      expect(result.reason).toBe('Type 2 required');
+    });
+
+    test('should handle single CA firecell as single level', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', floor: '1', maxEscapeRouteOccupants: 20 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should treat missing floor data as multi-level (no exemption)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', maxEscapeRouteOccupants: 40 } // Missing floor
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle empty string floor as missing data', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: '', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle null floor as missing data', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: null, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Escape Route Occupant Limits', () => {
+    test('should exempt when this area has exactly 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 50,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 50 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should exempt when this area has less than 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 30,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt when this area has more than 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 51,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 51 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when ANY CA area exceeds 50 occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 30,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 51 } // Exceeds limit
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+      expect(result.reason).toBe('Type 2 required');
+    });
+
+    test('should exempt when all CA areas are within limit', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 30,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 50 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+  });
+
+  describe('Combined Conditions - Both Must Be Met', () => {
+    test('should exempt when single level AND all ≤50 occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+      expect(result.reason).toBe('CA areas on single level with ≤50 escape route occupants');
+    });
+
+    test('should NOT exempt when single level BUT exceeds 50 occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 60,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 60 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when multi-level BUT within 50 occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'CA', floor: '2', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when multi-level AND exceeds occupants', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 60,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 60 },
+        { riskGroup: 'CA', floor: '2', maxEscapeRouteOccupants: 60 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Edge Cases and Missing Data', () => {
+    test('should handle missing maxEscapeRouteOccupants as invalid (no exemption)', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1' }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle negative occupants as invalid', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: -10,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: -10 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle non-numeric occupants as invalid', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 'thirty',
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 'thirty' }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle 0 occupants as valid and within limit', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 0,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 0 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should handle empty allFirecells array', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+
+      const result = evaluateNote1b(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(false); // No CA areas = treat as invalid
+    });
+
+    test('should handle missing allFirecells parameter', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+
+      const result = evaluateNote1b(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle mixed risk groups correctly', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', floor: '1', maxEscapeRouteOccupants: 100 }, // Different risk group - ignored
+        { riskGroup: 'VP', floor: '2', maxEscapeRouteOccupants: 20 }  // Different risk group - ignored
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true); // Only CA areas considered
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when exempt', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 40,
+        floor: 'Ground'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: 'Ground', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.reason).toBe('CA areas on single level with ≤50 escape route occupants');
+    });
+
+    test('should provide clear reason when not exempt', () => {
+      const firecell = {
+        riskGroup: 'CA',
+        maxEscapeRouteOccupants: 60,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 60 }
+      ];
+
+      const result = evaluateNote1b(firecell, {}, allFirecells);
+
+      expect(result.reason).toBe('Type 2 required');
+    });
+  });
+});

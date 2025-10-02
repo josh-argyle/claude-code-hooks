@@ -1,0 +1,98 @@
+const { getRequiredRouteCount } = require('../../validators/escape-route-validators/route-number-validator');
+
+/**
+ * Validate escape route configuration against CAS2 requirements
+ * @param {Object} firecell - Firecell object with route data
+ * @param {number} firecellIndex - Index for error messages
+ * @returns {Object} Validation result
+ */
+function validateEscapeRoutes(firecell, firecellIndex = 0) {
+  const errors = [];
+  const warnings = [];
+
+  // Check if route data is provided
+  if (!firecell.numberOfEscapeRoutes) {
+    errors.push(`Firecell ${firecellIndex + 1}: Number of escape routes is required`);
+    return { valid: false, errors, warnings };
+  }
+
+  // Get required routes from CAS2 Table 3.1
+  const requiredRoutes = getRequiredRouteCount(firecell.riskGroup, firecell.occupantLoad);
+
+  // Validate route count meets minimum
+  if (firecell.numberOfEscapeRoutes < requiredRoutes) {
+    errors.push(
+      `Firecell ${firecellIndex + 1}: Insufficient escape routes. ` +
+      `Provided: ${firecell.numberOfEscapeRoutes}, ` +
+      `Required by CAS2 Table 3.1: ${requiredRoutes} ` +
+      `for ${firecell.occupantLoad} ${firecell.riskGroup === 'SM' || firecell.riskGroup === 'SI' ? 'beds' : 'occupants'}`
+    );
+  }
+
+  // Validate max beds/occupants per route
+  if (firecell.riskGroup === 'SM' || firecell.riskGroup === 'SI') {
+    if (firecell.maxEscapeRouteBeds === undefined) {
+      errors.push(`Firecell ${firecellIndex + 1}: Maximum beds per escape route is required for ${firecell.riskGroup}`);
+    } else {
+      // Sanity check: max beds per route shouldn't exceed total beds
+      if (firecell.maxEscapeRouteBeds > firecell.occupantLoad) {
+        errors.push(
+          `Firecell ${firecellIndex + 1}: Maximum beds per route (${firecell.maxEscapeRouteBeds}) ` +
+          `cannot exceed total beds (${firecell.occupantLoad})`
+        );
+      }
+
+      // Warn if total capacity seems insufficient
+      const minTotalCapacity = firecell.numberOfEscapeRoutes * firecell.maxEscapeRouteBeds;
+      if (minTotalCapacity < firecell.occupantLoad) {
+        warnings.push(
+          `Firecell ${firecellIndex + 1}: Route capacity may be insufficient. ` +
+          `${firecell.numberOfEscapeRoutes} routes × ${firecell.maxEscapeRouteBeds} beds/route = ${minTotalCapacity} beds ` +
+          `but total is ${firecell.occupantLoad} beds. Verify unequal distribution is correct.`
+        );
+      }
+    }
+  } else {
+    if (firecell.maxEscapeRouteOccupants === undefined) {
+      errors.push(`Firecell ${firecellIndex + 1}: Maximum occupants per escape route is required for ${firecell.riskGroup}`);
+    } else {
+      // Sanity check: max occupants per route shouldn't exceed total
+      if (firecell.maxEscapeRouteOccupants > firecell.occupantLoad) {
+        errors.push(
+          `Firecell ${firecellIndex + 1}: Maximum occupants per route (${firecell.maxEscapeRouteOccupants}) ` +
+          `cannot exceed total occupants (${firecell.occupantLoad})`
+        );
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    requiredRoutes
+  };
+}
+
+/**
+ * Calculate minimum route widths based on CAS2 Table 3.1a
+ * (Simplified - returns base widths, can be enhanced later)
+ */
+function calculateMinimumRouteWidths(riskGroup, occupantLoad, numberOfRoutes) {
+  // Base widths from CAS2 Table 3.1a
+  const widths = {
+    SM: { horizontal: 850, vertical: 1000 },
+    SI: { horizontal: 850, vertical: 1000 },
+    CA: { horizontal: 850, vertical: 1000 },
+    WB: { horizontal: 850, vertical: 1000 },
+    WS: { horizontal: 850, vertical: 1000 },
+    VP: { horizontal: 850, vertical: 1000 }
+  };
+
+  return widths[riskGroup] || { horizontal: 850, vertical: 1000 };
+}
+
+module.exports = {
+  validateEscapeRoutes,
+  calculateMinimumRouteWidths
+};

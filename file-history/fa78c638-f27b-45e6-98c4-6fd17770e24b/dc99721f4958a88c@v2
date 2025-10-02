@@ -1,0 +1,250 @@
+const { expect } = require('@playwright/test');
+const DateUtils = require('../../public/js/dateUtils');
+
+class NCRStatisticsPage {
+  constructor(page) {
+    this.page = page;
+
+    // Page header elements
+    this.pageTitle = page.locator('h1.page-title');
+    this.navTabs = page.locator('.page-actions');
+
+    // Filter bar elements
+    this.fromDateInput = page.locator('#from');
+    this.toDateInput = page.locator('#to');
+    this.resetButton = page.locator('.reset-search-btn');
+
+    // Overview statistics elements
+    this.openReportsCount = page.locator('.open-reports');
+    this.closedReportsCount = page.locator('.closed-reports');
+    this.avg2WeeksTime = page.locator('.avg-close-2weeks');
+    this.avg6MonthsTime = page.locator('.avg-close-6months');
+
+    // Statistics cards
+    this.statisticsCards = page.locator('.statistics-cards .article-card');
+    this.rootCauseCard = page.locator('.article-card:has(h3:text("Root Cause Totals"))');
+    this.levelCard = page.locator('.article-card:has(h3:text("NCR Level Totals"))');
+    this.reporterCard = page.locator('.article-card:has(h3:text("Reporter Totals"))');
+    this.closerCard = page.locator('.article-card:has(h3:text("Closer Totals"))');
+    this.projectCard = page.locator('.article-card:has(h3:text("Project Totals"))');
+    this.timeToCloseCard = page.locator('.article-card:has(h3:text("Time to Close Summary"))');
+    this.supplierCard = page.locator('.article-card:has(h3:text("Supplier Totals"))');
+    this.contractorCard = page.locator('.article-card:has(h3:text("Main Contractor Totals"))');
+    this.consultantCard = page.locator('.article-card:has(h3:text("Consultant Totals"))');
+
+    // Stat items and expandable sections
+    this.statItems = page.locator('.stat-item');
+    this.clickableStatItems = page.locator('.stat-item.clickable');
+    this.expandButtons = page.locator('.expand-btn');
+    this.expandableSections = page.locator('.stat-expandable');
+
+    // Notification elements
+    this.notification = page.locator('.notification');
+  }
+
+  // Navigation methods
+  async navigate() {
+    await this.page.goto('/ncr/statistics');
+  }
+
+  async waitForPageLoad() {
+    await this.page.waitForLoadState('networkidle');
+    await expect(this.pageTitle).toBeVisible();
+    await expect(this.pageTitle).toHaveText('NCR Statistics');
+    // Wait for date inputs to be populated with default values
+    await this.page.waitForTimeout(1000);
+  }
+
+  // Date filter methods
+  async setFromDate(date) {
+    await this.fromDateInput.fill(date);
+    // Dispatch change and wait for the async operation to begin
+    await this.fromDateInput.dispatchEvent('change');
+    await this.page.waitForTimeout(100);
+  }
+
+  async setToDate(date) {
+    await this.toDateInput.fill(date);
+    await this.toDateInput.dispatchEvent('change');
+    await this.page.waitForTimeout(100);
+  }
+
+  async getFromDate() {
+    return await this.fromDateInput.inputValue();
+  }
+
+  async getToDate() {
+    return await this.toDateInput.inputValue();
+  }
+
+  async resetFilters() {
+    await this.resetButton.click();
+  }
+
+  // Wait for statistics to update after filter changes
+  async waitForStatisticsUpdate() {
+    // Wait for any pending fetch requests to complete
+    await this.page.waitForLoadState('networkidle');
+    // Wait for DOM updates and URL pushState (increased from 500ms)
+    await this.page.waitForTimeout(800);
+  }
+
+  // Wait for URL to contain expected parameters
+  async waitForURLParams(expectedParams) {
+    try {
+      await this.page.waitForFunction((expected) => {
+        const url = new URL(window.location.href);
+        const params = Object.fromEntries(url.searchParams.entries());
+        return Object.keys(expected).every(key => params[key] === expected[key]);
+      }, expectedParams, { timeout: 5000 });
+    } catch (e) {
+      // If timeout, still continue - the subsequent check will fail if params aren't correct
+      await this.page.waitForTimeout(200);
+    }
+  }
+
+  // Overview statistics methods
+  async getOpenReportsCount() {
+    const text = await this.openReportsCount.textContent();
+    return parseInt(text) || 0;
+  }
+
+  async getClosedReportsCount() {
+    const text = await this.closedReportsCount.textContent();
+    return parseInt(text) || 0;
+  }
+
+  async getAvg2WeeksTime() {
+    return await this.avg2WeeksTime.textContent();
+  }
+
+  async getAvg6MonthsTime() {
+    return await this.avg6MonthsTime.textContent();
+  }
+
+  // Statistics card methods
+  async getStatCardItems(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const statItems = card.locator('.stat-item');
+    const items = [];
+
+    const count = await statItems.count();
+    for (let i = 0; i < count; i++) {
+      const item = statItems.nth(i);
+      const label = await item.locator('.stat-label').textContent();
+      const value = await item.locator('.stat-value').textContent();
+      const isClickable = await item.getAttribute('class').then(cls => cls?.includes('clickable'));
+
+      items.push({
+        label: label?.trim(),
+        value: value?.trim(),
+        clickable: isClickable
+      });
+    }
+
+    return items;
+  }
+
+  async hasExpandButton(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const expandBtn = card.locator('.expand-btn');
+    return await expandBtn.isVisible();
+  }
+
+  async clickExpandButton(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const expandBtn = card.locator('.expand-btn');
+    await expandBtn.click();
+  }
+
+  async isExpanded(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const expandable = card.locator('.stat-expandable');
+    const display = await expandable.evaluate(el => getComputedStyle(el).display);
+    return display !== 'none';
+  }
+
+  async getExpandButtonText(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const expandBtn = card.locator('.expand-btn');
+    return await expandBtn.textContent();
+  }
+
+  // Stat item interaction methods
+  async clickStatItem(filterType, filterValue) {
+    const statItem = this.clickableStatItems.filter({
+      has: this.page.locator(`[data-filter-type="${filterType}"][data-filter-value="${filterValue}"]`)
+    });
+    await statItem.click();
+  }
+
+  async clickFirstStatItemInCard(cardSelector) {
+    const card = this.page.locator(cardSelector);
+    const firstClickableItem = card.locator('.stat-item.clickable').first();
+
+    // Get the filter data before clicking
+    const filterType = await firstClickableItem.getAttribute('data-filter-type');
+    const filterValue = await firstClickableItem.getAttribute('data-filter-value');
+
+    await firstClickableItem.click();
+
+    return { filterType, filterValue };
+  }
+
+  // URL and navigation verification methods
+  async getCurrentURL() {
+    return this.page.url();
+  }
+
+  async getURLSearchParams() {
+    const url = new URL(this.page.url());
+    return Object.fromEntries(url.searchParams.entries());
+  }
+
+  async waitForNavigation() {
+    await this.page.waitForLoadState('networkidle');
+  }
+
+  // Helper methods for test data setup
+  formatDate(date) {
+    return DateUtils.formatDateForAPI(date);
+  }
+
+  getDateOneYearAgo() {
+    const date = DateUtils.addMonths(new Date(), -12);
+    return this.formatDate(date);
+  }
+
+  getDateToday() {
+    return this.formatDate(new Date());
+  }
+
+  getDateOneMonthAgo() {
+    const date = DateUtils.addMonths(new Date(), -1);
+    return this.formatDate(date);
+  }
+
+  // Verification methods
+  async verifyPageElements() {
+    await expect(this.pageTitle).toBeVisible();
+    await expect(this.fromDateInput).toBeVisible();
+    await expect(this.toDateInput).toBeVisible();
+    await expect(this.resetButton).toBeVisible();
+    await expect(this.openReportsCount).toBeVisible();
+    await expect(this.closedReportsCount).toBeVisible();
+  }
+
+  async verifyStatisticsCardsVisible() {
+    await expect(this.rootCauseCard).toBeVisible();
+    await expect(this.levelCard).toBeVisible();
+    await expect(this.reporterCard).toBeVisible();
+    await expect(this.closerCard).toBeVisible();
+    await expect(this.projectCard).toBeVisible();
+    await expect(this.timeToCloseCard).toBeVisible();
+    await expect(this.supplierCard).toBeVisible();
+    await expect(this.contractorCard).toBeVisible();
+    await expect(this.consultantCard).toBeVisible();
+  }
+}
+
+module.exports = NCRStatisticsPage;

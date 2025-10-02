@@ -1,0 +1,518 @@
+const ProjectModel = require('../../../api/models/project-model');
+
+describe('ProjectModel', () => {
+  let project;
+
+  beforeEach(() => {
+    project = new ProjectModel();
+  });
+
+  describe('Constructor', () => {
+    test('should initialize with empty firecells array', () => {
+      expect(project.firecells).toEqual([]);
+      expect(project.getFirecellCount()).toBe(0);
+    });
+
+    test('should initialize requiresRemoteReceivingCentre to false', () => {
+      expect(project.requiresRemoteReceivingCentre).toBe(false);
+    });
+  });
+
+  describe('addFirecell', () => {
+    test('should add valid firecell and return index', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8.0,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      const index = project.addFirecell(firecellData);
+
+      expect(index).toBe(0);
+      expect(project.getFirecellCount()).toBe(1);
+      expect(project.getFirecell(0)).toEqual({
+        ...firecellData,
+        compliance: {}
+      });
+    });
+
+    test('should throw error for invalid risk group', () => {
+      const firecellData = {
+        riskGroup: 'INVALID',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - would be calculated
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Invalid risk group. Must be one of: SM, SI, CA, WB, WS, VP');
+    });
+
+    test('should throw error for invalid occupant type', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Invalid Activity',
+        // occupantLoad removed - would be calculated
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Invalid occupant type: Invalid Activity');
+    });
+
+    test('should throw error for negative occupant load', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        occupantLoad: -10, // Keep for testing validation of manual values
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Occupant load must be a non-negative number when provided');
+    });
+
+    test('should throw error for invalid escape height', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: -5,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Escape height is required and must be a non-negative number');
+    });
+
+    test('should throw error for non-boolean isSprinklered', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: 'yes',
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('isSprinklered is required and must be a boolean');
+    });
+
+    test('should throw error for missing floor area', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - would be calculated
+        escapeHeight: 8,
+        isSprinklered: true,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Floor area is required and must be a positive number');
+    });
+
+    test('should throw error for invalid floor area', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - would be calculated
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: -100,
+        floor: 'G'
+      };
+
+      expect(() => project.addFirecell(firecellData))
+        .toThrow('Floor area is required and must be a positive number');
+    });
+  });
+
+  describe('removeFirecell', () => {
+    beforeEach(() => {
+      project.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      });
+      project.addFirecell({
+        riskGroup: 'WB',
+        wbActivityType: 'professional',
+        occupantType: 'Workrooms, workshops',
+        // occupantLoad removed - will be calculated as 500/10 = 50
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 500,
+        floor: 'G'
+      });
+    });
+
+    test('should remove firecell and return it', () => {
+      const removed = project.removeFirecell(0);
+
+      expect(removed.riskGroup).toBe('CA');
+      expect(project.getFirecellCount()).toBe(1);
+      expect(project.getFirecell(0).riskGroup).toBe('WB');
+    });
+
+    test('should throw error for invalid index', () => {
+      expect(() => project.removeFirecell(-1))
+        .toThrow('Invalid firecell index');
+      expect(() => project.removeFirecell(10))
+        .toThrow('Invalid firecell index');
+    });
+  });
+
+  describe('updateFirecell', () => {
+    beforeEach(() => {
+      project.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      });
+    });
+
+    test('should update firecell properties', () => {
+      const updates = {
+        occupantLoad: 200, // Manual update for testing (processor would recalculate)
+        isSprinklered: false,
+        floorArea: 1000
+      };
+
+      const updated = project.updateFirecell(0, updates);
+
+      expect(updated.occupantLoad).toBe(200);
+      expect(updated.isSprinklered).toBe(false);
+      expect(updated.riskGroup).toBe('CA');
+      expect(updated.occupantType).toBe('Office spaces');
+    });
+
+    test('should validate updated data', () => {
+      const updates = {
+        riskGroup: 'INVALID'
+      };
+
+      expect(() => project.updateFirecell(0, updates))
+        .toThrow('Invalid risk group');
+    });
+
+    test('should throw error for invalid index', () => {
+      expect(() => project.updateFirecell(-1, {}))
+        .toThrow('Invalid firecell index');
+    });
+  });
+
+  describe('getFirecell', () => {
+    beforeEach(() => {
+      project.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      });
+    });
+
+    test('should return firecell by index', () => {
+      const firecell = project.getFirecell(0);
+      expect(firecell.riskGroup).toBe('CA');
+    });
+
+    test('should throw error for invalid index', () => {
+      expect(() => project.getFirecell(-1))
+        .toThrow('Invalid firecell index');
+      expect(() => project.getFirecell(10))
+        .toThrow('Invalid firecell index');
+    });
+  });
+
+  describe('getAllFirecells', () => {
+    test('should return copy of all firecells', () => {
+      project.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      const allFirecells = project.getAllFirecells();
+
+      expect(allFirecells).toHaveLength(1);
+      expect(allFirecells[0].riskGroup).toBe('CA');
+
+      // Should be a copy, not the original array
+      expect(allFirecells).not.toBe(project.firecells);
+    });
+  });
+
+  describe('validateFirecell', () => {
+    test('should validate all risk groups', () => {
+      const validRiskGroups = ['SM', 'SI', 'CA', 'WB', 'WS', 'VP'];
+
+      validRiskGroups.forEach(riskGroup => {
+        const firecellData = {
+          riskGroup,
+          occupantType: 'Office spaces',
+          occupantLoad: 100, // Keep for SM/SI (bed spaces), will be calculated for others
+          escapeHeight: 5,
+          isSprinklered: false,
+          floorArea: 1000,
+          floor: 'G'
+        };
+
+        // SM/SI need sleepingOccupantType
+        if (riskGroup === 'SM' || riskGroup === 'SI') {
+          firecellData.sleepingOccupantType = 'permanent';
+        }
+
+        // WB needs wbActivityType
+        if (riskGroup === 'WB') {
+          firecellData.wbActivityType = 'professional';
+        }
+
+        expect(() => project.validateFirecell(firecellData)).not.toThrow();
+      });
+    });
+
+    test('should accept decimal values for occupant load', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        occupantLoad: 150.75, // Manual value for testing validation
+        escapeHeight: 8.5,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      const validated = project.validateFirecell(firecellData);
+      expect(validated.occupantLoad).toBe(150.75);
+      expect(validated.escapeHeight).toBe(8.5);
+    });
+
+    test('should accept zero occupant load', () => {
+      const firecellData = {
+        riskGroup: 'WS',
+        occupantType: 'Bulk storage including racks and shelves',
+        occupantLoad: 0, // Manual value for testing validation
+        escapeHeight: 6,
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      };
+
+      expect(() => project.validateFirecell(firecellData)).not.toThrow();
+    });
+
+    test('should accept optional hasVehicleStacker for VP risk group', () => {
+      const firecellData = {
+        riskGroup: 'VP',
+        occupantType: 'Parking buildings, garages',
+        // occupantLoad removed - will be calculated as 5000/50 = 100
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 5000,
+        hasVehicleStacker: true,
+        floor: 'G'
+      };
+
+      const validated = project.validateFirecell(firecellData);
+      expect(validated.hasVehicleStacker).toBe(true);
+    });
+
+    test('should accept optional isCinemaOrTheatre for CA risk group', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 1000,
+        isCinemaOrTheatre: true,
+        floor: 'G'
+      };
+
+      const validated = project.validateFirecell(firecellData);
+      expect(validated.isCinemaOrTheatre).toBe(true);
+    });
+
+    test('should validate hasVehicleStacker is boolean when provided for VP', () => {
+      const firecellData = {
+        riskGroup: 'VP',
+        occupantType: 'Parking buildings, garages',
+        // occupantLoad removed - will be calculated as 5000/50 = 100
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 5000,
+        hasVehicleStacker: 'yes', // Invalid type
+        floor: 'G'
+      };
+
+      expect(() => project.validateFirecell(firecellData))
+        .toThrow('hasVehicleStacker must be a boolean when provided');
+    });
+
+    test('should validate isCinemaOrTheatre is boolean when provided for CA', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 1000,
+        isCinemaOrTheatre: 'yes', // Invalid type
+        floor: 'G'
+      };
+
+      expect(() => project.validateFirecell(firecellData))
+        .toThrow('isCinemaOrTheatre must be a boolean when provided');
+    });
+
+    test('should ignore hasVehicleStacker for non-VP risk groups', () => {
+      const firecellData = {
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 1000,
+        hasVehicleStacker: true,
+        floor: 'G'
+      };
+
+      const validated = project.validateFirecell(firecellData);
+      expect(validated.hasVehicleStacker).toBeUndefined();
+    });
+
+    test('should ignore isCinemaOrTheatre for non-CA risk groups', () => {
+      const firecellData = {
+        riskGroup: 'WB',
+        wbActivityType: 'professional',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 1000,
+        isCinemaOrTheatre: true,
+        floor: 'G'
+      };
+
+      const validated = project.validateFirecell(firecellData);
+      expect(validated.isCinemaOrTheatre).toBeUndefined();
+    });
+  });
+
+  describe('Project and Client Identification', () => {
+    describe('projectName', () => {
+      test('should initialize as undefined', () => {
+        expect(project.projectName).toBeUndefined();
+      });
+
+      test('should store projectName when set', () => {
+        project.projectName = 'Marina Bay Apartments';
+        expect(project.projectName).toBe('Marina Bay Apartments');
+      });
+
+      test('should allow empty string', () => {
+        project.projectName = '';
+        expect(project.projectName).toBe('');
+      });
+
+      test('should handle special characters', () => {
+        project.projectName = "O'Brien's Building - Phase 2";
+        expect(project.projectName).toBe("O'Brien's Building - Phase 2");
+      });
+    });
+
+    describe('clientName', () => {
+      test('should initialize as undefined', () => {
+        expect(project.clientName).toBeUndefined();
+      });
+
+      test('should store clientName when set', () => {
+        project.clientName = 'John Smith';
+        expect(project.clientName).toBe('John Smith');
+      });
+
+      test('should handle company names', () => {
+        project.clientName = 'ABC Development Ltd.';
+        expect(project.clientName).toBe('ABC Development Ltd.');
+      });
+    });
+
+    describe('clientAddress', () => {
+      test('should initialize as undefined', () => {
+        expect(project.clientAddress).toBeUndefined();
+      });
+
+      test('should store clientAddress when set', () => {
+        project.clientAddress = '123 Main Street\nAuckland 1010';
+        expect(project.clientAddress).toBe('123 Main Street\nAuckland 1010');
+      });
+
+      test('should handle multi-line addresses', () => {
+        const address = '456 Queen Street\nAuckland Central\nAuckland 1010\nNew Zealand';
+        project.clientAddress = address;
+        expect(project.clientAddress).toBe(address);
+      });
+
+      test('should preserve newline characters', () => {
+        project.clientAddress = 'Line 1\nLine 2\nLine 3';
+        expect(project.clientAddress).toContain('\n');
+        expect(project.clientAddress.split('\n')).toHaveLength(3);
+      });
+    });
+
+    describe('integration with addFirecell', () => {
+      test('should maintain client info after adding firecells', () => {
+        project.projectName = 'Test Project';
+        project.clientName = 'Test Client';
+        project.clientAddress = 'Test Address';
+
+        const firecellData = {
+          riskGroup: 'CA',
+          occupantType: 'Office spaces',
+          escapeHeight: 8.0,
+          isSprinklered: true,
+          floorArea: 1000,
+          floor: 'G'
+        };
+        project.addFirecell(firecellData);
+
+        expect(project.projectName).toBe('Test Project');
+        expect(project.clientName).toBe('Test Client');
+        expect(project.clientAddress).toBe('Test Address');
+      });
+    });
+  });
+});

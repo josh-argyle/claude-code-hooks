@@ -1,0 +1,108 @@
+/**
+ * Note 9 Evaluator - VP Cross Ventilation Requirement
+ *
+ * From CAS2 Table 2.2 Note 9:
+ * "In risk group VP where a firecell is unsprinklered and there is parking for more
+ * than 10 vehicles, each of those firecells within that building must have natural
+ * cross ventilation. See Paragraph 4.1.3."
+ *
+ * This note applies to VP (Vehicle Parking) risk group and requires natural cross
+ * ventilation when the firecell is unsprinklered and has >10 vehicles. This creates
+ * a cross-firecell dependency: if ANY VP firecell triggers the requirement, ALL VP firecells
+ * in the building need ventilation.
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'VP' for this note to apply)
+ * @param {number} [firecell.vehicleCount] - Number of vehicles in the parking area
+ * @param {boolean} [firecell.isSprinklered] - Whether the firecell is sprinklered
+ * @param {boolean} [firecell.hasCrossVentilation] - Whether natural cross ventilation is present
+ * @param {Object} [projectModel] - Project-level parameters (not used for this note)
+ * @param {Array<Object>} [allFirecells=[]] - All firecells in the building for cross-firecell analysis
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.requiresVentilation] - Whether natural cross ventilation is required (only if applies is true)
+ * @returns {boolean} [returns.compliant] - Whether the firecell meets ventilation requirements (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote9(firecell, projectModel, allFirecells = []) {
+  // Note 9 only applies to VP (Vehicle Parking) risk group
+  if (firecell.riskGroup !== 'VP') {
+    return { applies: false };
+  }
+
+  // Validate and sanitize vehicle count
+  const vehicleCount =
+    typeof firecell.vehicleCount === 'number' &&
+    isFinite(firecell.vehicleCount) &&
+    firecell.vehicleCount >= 0
+      ? firecell.vehicleCount
+      : 0;
+
+  // Check if firecell is sprinklered
+  const isSprinklered = firecell.isSprinklered === true;
+
+  // If sprinklered, ventilation is not required regardless of vehicle count
+  if (isSprinklered) {
+    return {
+      applies: true,
+      requiresVentilation: false,
+      compliant: true,
+      reason: 'Sprinklered firecell - no ventilation requirement',
+    };
+  }
+
+  // Check if this firecell individually triggers the requirement (>10 vehicles)
+  const thisFirecellTriggers = vehicleCount > 10;
+
+  // Check if any other VP firecell in the building triggers the requirement (cross-firecell dependency)
+  let otherFirecellTriggers = false;
+  if (allFirecells.length > 0) {
+    otherFirecellTriggers = allFirecells.some(otherFirecell => {
+      if (otherFirecell === firecell || otherFirecell.riskGroup !== 'VP') return false;
+
+      const otherVehicleCount =
+        typeof otherFirecell.vehicleCount === 'number' &&
+        isFinite(otherFirecell.vehicleCount) &&
+        otherFirecell.vehicleCount >= 0
+          ? otherFirecell.vehicleCount
+          : 0;
+
+      const otherIsSprinklered = otherFirecell.isSprinklered === true;
+
+      return !otherIsSprinklered && otherVehicleCount > 10;
+    });
+  }
+
+  const requiresVentilation = thisFirecellTriggers || otherFirecellTriggers;
+
+  // If ventilation is not required, firecell is compliant
+  if (!requiresVentilation) {
+    return {
+      applies: true,
+      requiresVentilation: false,
+      compliant: true,
+      reason: '≤10 vehicles - no ventilation requirement',
+    };
+  }
+
+  // Ventilation is required - check compliance
+  const hasVentilation = firecell.hasCrossVentilation === true;
+
+  // Determine appropriate reason message
+  let reason;
+  if (thisFirecellTriggers) {
+    reason = 'Unsprinklered >10 vehicles - natural cross ventilation required';
+  } else {
+    reason =
+      'Another VP firecell triggers requirement - natural cross ventilation required for all VP firecells';
+  }
+
+  return {
+    applies: true,
+    requiresVentilation: true,
+    compliant: hasVentilation,
+    reason,
+  };
+}
+
+module.exports = evaluateNote9;

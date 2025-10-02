@@ -1,0 +1,341 @@
+const { getOccupantDensityOptions, validateOccupantDensity } = require('../data');
+
+class ProjectModel {
+  constructor() {
+    this.firecells = [];
+    this.requiresRemoteReceivingCentre = false;
+    this.hasRemoteReceivingCentreConnection = undefined;
+    this.remoteReceivingCentreCompliance = null;
+    this.storesHazardousGoods = undefined;
+    this.hazardousSubstancesCompliance = null;
+    this.hazardousSubstancesData = undefined;
+
+    // Project identification
+    this.projectName = undefined;
+    this.clientName = undefined;      // Client name for document header
+    this.clientAddress = undefined;   // Client address (multi-line string)
+
+    // Building vertical structure configuration
+    // Used for standardized floor identifiers in Notes 1b and 1c evaluation
+    this.numberOfFloorsAboveGround = 0; // Default: Single-storey (ground floor only)
+    this.numberOfBasementLevels = 0;    // Default: No basements
+
+    // Project-level properties for fire-resistance processor
+    this.isSprinklered = undefined;
+    this.escapeHeight = undefined;
+    this.primaryRiskGroup = undefined;
+    this.buildingRiskGroup = undefined;
+    this.maxStorageHeight = undefined;
+    this.hasCrossVentilation = undefined;
+
+    // C/AS2 Scope validation (Para 1.1.2)
+    this.confirmedNoComplexFeatures = undefined; // User confirmation that building has no complex features
+  }
+
+  addFirecell(firecellData) {
+    const validatedFirecell = this.validateFirecell(firecellData);
+    this.firecells.push(validatedFirecell);
+    return this.firecells.length - 1;
+  }
+
+  removeFirecell(index) {
+    if (index < 0 || index >= this.firecells.length) {
+      throw new Error('Invalid firecell index');
+    }
+    return this.firecells.splice(index, 1)[0];
+  }
+
+  updateFirecell(index, updates) {
+    if (index < 0 || index >= this.firecells.length) {
+      throw new Error('Invalid firecell index');
+    }
+
+    const currentFirecell = this.firecells[index];
+    const updatedFirecell = { ...currentFirecell, ...updates };
+    const validatedFirecell = this.validateFirecell(updatedFirecell);
+
+    this.firecells[index] = validatedFirecell;
+    return this.firecells[index];
+  }
+
+  validateFirecell(firecellData) {
+    const validRiskGroups = ['SM', 'SI', 'CA', 'WB', 'WS', 'VP'];
+
+    if (!firecellData.riskGroup || !validRiskGroups.includes(firecellData.riskGroup)) {
+      throw new Error(`Invalid risk group. Must be one of: ${validRiskGroups.join(', ')}`);
+    }
+
+    // Validate SM/SI sleeping occupant type
+    if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+      const validTypes = ['permanent', 'transient', 'education', 'careOrDetention'];
+
+      if (!firecellData.sleepingOccupantType) {
+        throw new Error(`${firecellData.riskGroup} risk group requires sleepingOccupantType`);
+      }
+
+      if (!validTypes.includes(firecellData.sleepingOccupantType)) {
+        throw new Error(`Invalid sleepingOccupantType: ${firecellData.sleepingOccupantType}. Must be one of: ${validTypes.join(', ')}`);
+      }
+
+      // SM/SI: Bed spaces are REQUIRED (manual entry per CAS2 Section 1.4.5)
+      if (firecellData.occupantLoad === undefined || typeof firecellData.occupantLoad !== 'number' || firecellData.occupantLoad < 0) {
+        throw new Error('Bed spaces (occupant load) is required for SM/SI risk groups and must be a non-negative number');
+      }
+    } else {
+      // CA/WB/WS/VP: Validate occupant density activity type
+      if (!firecellData.occupantType || typeof firecellData.occupantType !== 'string') {
+        throw new Error('Occupant type is required and must be a string');
+      }
+
+      if (!validateOccupantDensity(firecellData.occupantType)) {
+        throw new Error(`Invalid occupant type: ${firecellData.occupantType}`);
+      }
+
+      // occupantLoad is optional (will be calculated)
+      if (firecellData.occupantLoad !== undefined) {
+        if (typeof firecellData.occupantLoad !== 'number' || firecellData.occupantLoad < 0) {
+          throw new Error('Occupant load must be a non-negative number when provided');
+        }
+      }
+    }
+
+    if (firecellData.escapeHeight === undefined || typeof firecellData.escapeHeight !== 'number' || firecellData.escapeHeight < 0) {
+      throw new Error('Escape height is required and must be a non-negative number');
+    }
+
+    if (typeof firecellData.isSprinklered !== 'boolean') {
+      throw new Error('isSprinklered is required and must be a boolean');
+    }
+
+    if (firecellData.floorArea === undefined || typeof firecellData.floorArea !== 'number' || firecellData.floorArea <= 0) {
+      throw new Error('Floor area is required and must be a positive number');
+    }
+
+    // Validate floor identifier (required for Notes 1b and 1c evaluation)
+    if (!firecellData.floor || typeof firecellData.floor !== 'string') {
+      throw new Error('Floor identifier is required and must be a string');
+    }
+
+    // NEW: Validate escape route configuration
+    if (firecellData.numberOfEscapeRoutes !== undefined) {
+      if (typeof firecellData.numberOfEscapeRoutes !== 'number' || firecellData.numberOfEscapeRoutes < 1) {
+        throw new Error('Number of escape routes must be at least 1');
+      }
+    }
+
+    if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+      if (firecellData.maxEscapeRouteBeds !== undefined) {
+        if (typeof firecellData.maxEscapeRouteBeds !== 'number' || firecellData.maxEscapeRouteBeds < 0) {
+          throw new Error('Max escape route beds must be a non-negative number');
+        }
+      }
+    } else {
+      if (firecellData.maxEscapeRouteOccupants !== undefined) {
+        if (typeof firecellData.maxEscapeRouteOccupants !== 'number' || firecellData.maxEscapeRouteOccupants < 0) {
+          throw new Error('Max escape route occupants must be a non-negative number');
+        }
+      }
+    }
+
+    // WB: Validate activity type (REQUIRED for Table 1.1 compliance)
+    if (firecellData.riskGroup === 'WB') {
+      const validWbTypes = ['professional', 'industrial', 'storage', 'temperatureControlled', 'intermittent'];
+
+      if (!firecellData.wbActivityType || typeof firecellData.wbActivityType !== 'string') {
+        throw new Error('WB activity type is required and must be a string');
+      }
+
+      if (!validWbTypes.includes(firecellData.wbActivityType)) {
+        throw new Error(`Invalid WB activity type: ${firecellData.wbActivityType}. Must be one of: ${validWbTypes.join(', ')}`);
+      }
+    }
+
+    // Validate optional properties
+    if (firecellData.hasVehicleStacker !== undefined && typeof firecellData.hasVehicleStacker !== 'boolean') {
+      throw new Error('hasVehicleStacker must be a boolean when provided');
+    }
+
+    if (firecellData.isCinemaOrTheatre !== undefined && typeof firecellData.isCinemaOrTheatre !== 'boolean') {
+      throw new Error('isCinemaOrTheatre must be a boolean when provided');
+    }
+
+    // WB/VP: Validate boundary distance (Table 2.1 Note 2, Table 2.4 Note 2)
+    if (firecellData.distanceFromBoundary15mOrMore !== undefined && typeof firecellData.distanceFromBoundary15mOrMore !== 'boolean') {
+      throw new Error('distanceFromBoundary15mOrMore must be a boolean when provided');
+    }
+
+    // WB: Validate max storage height (Table 2.4 Note 2)
+    if (firecellData.maxStorageHeight !== undefined) {
+      if (typeof firecellData.maxStorageHeight !== 'number' || firecellData.maxStorageHeight < 0) {
+        throw new Error('maxStorageHeight must be a non-negative number when provided');
+      }
+    }
+
+    // VP: Validate cross ventilation (Table 2.4 Note 3)
+    if (firecellData.hasCrossVentilation !== undefined && typeof firecellData.hasCrossVentilation !== 'boolean') {
+      throw new Error('hasCrossVentilation must be a boolean when provided');
+    }
+
+    // NEW: Validate installed fire safety systems
+    if (firecellData.installedFireSafetySystems !== undefined) {
+      if (!Array.isArray(firecellData.installedFireSafetySystems)) {
+        throw new Error('installedFireSafetySystems must be an array');
+      }
+      // Validate each system code
+      firecellData.installedFireSafetySystems.forEach(code => {
+        if (code === 'none' || code === 'NZS-4515') return; // Special codes
+        const numericCode = parseInt(code);
+        if (isNaN(numericCode) || numericCode < 1 || numericCode > 20) {
+          throw new Error(`Invalid fire safety system code: ${code}`);
+        }
+      });
+    }
+
+    // NEW: Validate NZS 4515 flags
+    if (firecellData.usesNZS4515Sprinklers !== undefined && typeof firecellData.usesNZS4515Sprinklers !== 'boolean') {
+      throw new Error('usesNZS4515Sprinklers must be a boolean');
+    }
+
+    const validatedFirecell = {
+      riskGroup: firecellData.riskGroup,
+      occupantLoad: firecellData.occupantLoad,
+      escapeHeight: firecellData.escapeHeight,
+      isSprinklered: firecellData.isSprinklered,
+      floorArea: firecellData.floorArea,
+      floor: firecellData.floor.toUpperCase().trim(), // Normalize to uppercase for consistency
+      compliance: {}
+    };
+
+    // Add occupantType or sleepingOccupantType based on risk group
+    if (firecellData.riskGroup === 'SM' || firecellData.riskGroup === 'SI') {
+      validatedFirecell.sleepingOccupantType = firecellData.sleepingOccupantType;
+    } else {
+      validatedFirecell.occupantType = firecellData.occupantType;
+    }
+
+    // Add wbActivityType for WB risk group
+    if (firecellData.riskGroup === 'WB') {
+      validatedFirecell.wbActivityType = firecellData.wbActivityType;
+    }
+
+    // NEW: Add escape route configuration
+    if (firecellData.numberOfEscapeRoutes !== undefined) {
+      validatedFirecell.numberOfEscapeRoutes = firecellData.numberOfEscapeRoutes;
+    }
+
+    if (firecellData.maxEscapeRouteBeds !== undefined) {
+      validatedFirecell.maxEscapeRouteBeds = firecellData.maxEscapeRouteBeds;
+    }
+
+    if (firecellData.maxEscapeRouteOccupants !== undefined) {
+      validatedFirecell.maxEscapeRouteOccupants = firecellData.maxEscapeRouteOccupants;
+    }
+
+    // Add optional properties only for relevant risk groups
+    if (firecellData.riskGroup === 'VP' && firecellData.hasVehicleStacker !== undefined) {
+      validatedFirecell.hasVehicleStacker = firecellData.hasVehicleStacker;
+    }
+
+    if (firecellData.riskGroup === 'CA' && firecellData.isCinemaOrTheatre !== undefined) {
+      validatedFirecell.isCinemaOrTheatre = firecellData.isCinemaOrTheatre;
+    }
+
+    // WB/VP: Add boundary distance (Table 2.1 Note 2, Table 2.4 Note 2)
+    if ((firecellData.riskGroup === 'WB' || firecellData.riskGroup === 'VP') &&
+        firecellData.distanceFromBoundary15mOrMore !== undefined) {
+      validatedFirecell.distanceFromBoundary15mOrMore = firecellData.distanceFromBoundary15mOrMore;
+    }
+
+    // WB: Add max storage height (Table 2.4 Note 2)
+    if (firecellData.riskGroup === 'WB' && firecellData.maxStorageHeight !== undefined) {
+      validatedFirecell.maxStorageHeight = firecellData.maxStorageHeight;
+    }
+
+    // VP: Add cross ventilation (Table 2.4 Note 3)
+    if (firecellData.riskGroup === 'VP' && firecellData.hasCrossVentilation !== undefined) {
+      validatedFirecell.hasCrossVentilation = firecellData.hasCrossVentilation;
+    }
+
+    // Add CAS2 2.2.4 early childhood centre properties (Note 4)
+    if (firecellData.riskGroup === 'CA' && firecellData.isEarlyChildhoodCentre !== undefined) {
+      validatedFirecell.isEarlyChildhoodCentre = firecellData.isEarlyChildhoodCentre;
+
+      // Condition (a) properties: escape height ≤ 2.0m
+      if (firecellData.hasDedicatedSleepingAreas !== undefined) {
+        validatedFirecell.hasDedicatedSleepingAreas = firecellData.hasDedicatedSleepingAreas;
+      }
+      if (firecellData.supplementarySmokeDetectorsCompliant !== undefined) {
+        validatedFirecell.supplementarySmokeDetectorsCompliant = firecellData.supplementarySmokeDetectorsCompliant;
+      }
+
+      // Condition (b) properties: escape height > 2.0m
+      if (firecellData.placesOfSafetyCompliant !== undefined) {
+        validatedFirecell.placesOfSafetyCompliant = firecellData.placesOfSafetyCompliant;
+      }
+    }
+
+    // NEW: Add NZS 4515 flags
+    if (firecellData.usesNZS4515Sprinklers !== undefined) {
+      validatedFirecell.usesNZS4515Sprinklers = firecellData.usesNZS4515Sprinklers;
+    }
+
+    // NEW: Add installed systems
+    if (firecellData.installedFireSafetySystems) {
+      validatedFirecell.installedFireSafetySystems = firecellData.installedFireSafetySystems;
+    }
+
+    return validatedFirecell;
+  }
+
+  getFirecell(index) {
+    if (index < 0 || index >= this.firecells.length) {
+      throw new Error('Invalid firecell index');
+    }
+    return this.firecells[index];
+  }
+
+  getAllFirecells() {
+    return [...this.firecells];
+  }
+
+  getFirecellCount() {
+    return this.firecells.length;
+  }
+
+  /**
+   * Calculate total number of storeys in the building
+   * Used for C/AS2 Para 1.1.2(e) validation (>20 storeys requires alternative compliance)
+   *
+   * @returns {number} Total storeys = Ground floor (1) + floors above ground
+   *
+   * @example
+   * numberOfFloorsAboveGround = 0  → storeyCount = 1  (single storey)
+   * numberOfFloorsAboveGround = 19 → storeyCount = 20 (max for C/AS2)
+   * numberOfFloorsAboveGround = 20 → storeyCount = 21 (exceeds C/AS2 limit)
+   */
+  get storeyCount() {
+    const floorsAbove = this.numberOfFloorsAboveGround || 0;
+    return floorsAbove + 1; // Ground floor + floors above
+  }
+
+  /**
+   * Calculate total building floor area across all firecells
+   * Used for NZS 4515 scope validation (Para 2.2.3)
+   * @returns {number} Total floor area in square meters
+   */
+  getTotalFloorArea() {
+    return this.firecells.reduce((sum, fc) => sum + (fc.floorArea || 0), 0);
+  }
+
+  /**
+   * Check if building is within NZS 4515 scope
+   * NZS 4515 basic scope: ≤500m² (Section 1.1.3.1)
+   * NZS 4515 extended scope: ≤2000m² (Section 1.1.3.2) - requires 60-min supply, fire brigade alarm, sprinkler inlet
+   * @returns {boolean} True if total floor area ≤ 2000m² (extended scope limit)
+   */
+  isWithinNZS4515Scope() {
+    return this.getTotalFloorArea() <= 2000;
+  }
+}
+
+module.exports = ProjectModel;

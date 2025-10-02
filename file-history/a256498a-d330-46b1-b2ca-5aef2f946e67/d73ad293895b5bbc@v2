@@ -1,0 +1,1496 @@
+/**
+ * Database Utilities for Tests
+ *
+ * Provides centralized database operations for test environments only.
+ * Includes relationship-aware cleanup and batch operations.
+ */
+
+const DatabaseConnection = require('./connection-pool');
+const bcrypt = require('bcryptjs');
+
+class DatabaseUtils {
+  static async getConnection() {
+    return DatabaseConnection.getInstance();
+  }
+
+  static async cleanupWithRelationships() {
+    const prisma = await this.getConnection();
+
+    // Clean up test data in reverse dependency order to avoid foreign key violations
+    const cleanupOrder = [
+      // Analytics tables (reference users)
+      'analytics_page_visits',
+
+      // Initiative-related tables (reference users and config tables)
+      'initiative_steps',
+      'initiative_phases',
+      'initiative_requirements',
+      'initiatives',
+
+      // NCR-related tables (must be before users due to foreign key constraints)
+      'ncr_images',
+      'ncr_companies',
+      'ncr_users',
+      'ncr_reports',
+
+      // Rostering tables (must be before config_profit_centres and users)
+      'rostering_profit_centre_availability',
+      'rostering_project_data',
+      'rostering_profit_centre_data',
+      'rostering_staff_allocations',
+
+      // Other dependent tables
+      'staff_profit_centre_assignments',
+      'articles',
+      'feedback_reports',
+      'users_contacts',
+      'users_roles',
+      'company_types',
+      'contacts',
+      'companies',
+
+      // Core tables (users references config_profit_centres)
+      'users',
+      'config_roles',
+      'config_initiative_statuses',
+      'config_profit_centres'
+    ];
+
+    console.log('🧹 Starting database cleanup...');
+
+    const cleanedTables = [];
+    const failedTables = [];
+
+    for (const table of cleanupOrder) {
+      try {
+        await prisma.$executeRawUnsafe(`DELETE FROM ${table} WHERE 1=1`);
+        cleanedTables.push(table);
+      } catch (error) {
+        // Table might not exist or might be empty - this is OK
+        failedTables.push(`${table} (${error.message})`);
+      }
+    }
+
+    console.log(`✅ Database cleanup completed: ${cleanedTables.length} tables cleaned${failedTables.length > 0 ? `, ${failedTables.length} failed` : ''}`);
+  }
+
+  static async validateEnvironment() {
+    DatabaseConnection.validateTestEnvironment();
+
+    const healthy = await DatabaseConnection.healthCheck();
+    if (!healthy) {
+      throw new Error('❌ Database health check failed');
+    }
+  }
+
+  static async seedTestData() {
+    const prisma = await this.getConnection();
+
+    const results = [];
+
+    // Seed essential configuration data (order matters due to foreign keys)
+    results.push(await this.seedRoles(prisma));
+    results.push(await this.seedProfitCentres(prisma));
+    results.push(await this.seedUserPreferenceTypes(prisma));
+    results.push(await this.seedCompanyTypes(prisma));
+    results.push(await this.seedNCRConfiguration(prisma));
+    results.push(await this.seedArticleTypes(prisma));
+    results.push(await this.seedWorkCentres(prisma));
+    results.push(await this.seedInitiativeConfiguration(prisma));
+
+    // Create standard test users (needed for other entities)
+    results.push(await this.createStandardTestUsers(prisma));
+
+    // Seed main entities (order matters due to foreign key dependencies)
+    results.push(await this.seedTestProjects(prisma));
+    results.push(await this.seedTestManufacturers(prisma));
+    results.push(await this.seedTestNCRs(prisma));
+    results.push(await this.seedTestArticles(prisma));
+    results.push(await this.seedLabourForecastingData(prisma));
+
+    // Seed feedback, notifications and todos
+    results.push(await this.seedTestFeedback(prisma));
+    results.push(await this.seedTestNotifications(prisma));
+    results.push(await this.seedTestTodos(prisma));
+    results.push(await this.seedTestTenderbook(prisma));
+
+    console.log(`🌱 Test data seeded: ${results.filter(Boolean).join(', ')}`);
+  }
+
+  static async seedRoles(prisma) {
+    const roles = [
+      { role_name: 'admin', role_description: 'System administrator' },
+      { role_name: 'project_manager', role_description: 'Project manager' },
+      { role_name: 'foreman', role_description: 'Foreman' },
+      { role_name: 'user', role_description: 'Basic user' }
+    ];
+
+    for (const role of roles) {
+      await prisma.config_roles.upsert({
+        where: { role_name: role.role_name },
+        update: {},
+        create: role
+      });
+    }
+    return 'roles';
+  }
+
+  static async seedProfitCentres(prisma) {
+    const profitCentres = [
+      {
+        profit_centre_code: '1120',
+        display_name: 'Dunedin',
+        locale: 'Dunedin',
+        branch_prefix: 'DN',
+        finco_code: '01',
+        depot_address: 'Dunedin Office',
+        holiday_project_code: 'DN000',
+        yard_project_code: 'DN001'
+      },
+      {
+        profit_centre_code: '1320',
+        display_name: 'Christchurch',
+        locale: 'Christchurch',
+        branch_prefix: 'CH',
+        finco_code: '02',
+        depot_address: 'Christchurch Office',
+        holiday_project_code: 'CH000',
+        yard_project_code: 'CH001'
+      },
+      {
+        profit_centre_code: '2120',
+        display_name: 'Queenstown',
+        locale: 'Queenstown',
+        branch_prefix: 'QT',
+        finco_code: '03',
+        depot_address: 'Queenstown Office',
+        holiday_project_code: 'QT000',
+        yard_project_code: 'QT001'
+      },
+      {
+        profit_centre_code: '3120',
+        display_name: 'Taranaki',
+        locale: 'Taranaki',
+        branch_prefix: 'TK',
+        finco_code: '04',
+        depot_address: 'Taranaki Office',
+        holiday_project_code: 'TK000',
+        yard_project_code: 'TK001'
+      }
+    ];
+
+    for (const profitCentre of profitCentres) {
+      await prisma.config_profit_centres.upsert({
+        where: { profit_centre_code: profitCentre.profit_centre_code },
+        update: {},
+        create: profitCentre
+      });
+    }
+    return 'profit centres';
+  }
+
+  static async seedUserPreferenceTypes(prisma) {
+    const preferenceTypes = [
+      { preference_name: 'is_colour_blind', default_value: 'false' },
+      { preference_name: 'theme', default_value: 'light' },
+      { preference_name: 'language', default_value: 'en' }
+    ];
+
+    for (const prefType of preferenceTypes) {
+      await prisma.config_user_preference_types.upsert({
+        where: { preference_name: prefType.preference_name },
+        update: {},
+        create: prefType
+      });
+    }
+    return 'user preference types';
+  }
+
+  static async seedCompanyTypes(prisma) {
+    const companyTypes = [
+      { company_type: 'Client', description: 'Client company type' },
+      { company_type: 'Supplier', description: 'Supplier company type' },
+      { company_type: 'Main Contractor', description: 'Main contractor company type' },
+      { company_type: 'Manufacturer', description: 'Manufacturer company type' }
+    ];
+
+    for (const type of companyTypes) {
+      await prisma.config_company_types.upsert({
+        where: { company_type: type.company_type },
+        update: {},
+        create: type
+      });
+    }
+    return 'company types';
+  }
+
+  static async seedNCRConfiguration(prisma) {
+    // Seed NCR levels
+    const ncrLevels = [
+      { value: 'Minor', level: 1 },
+      { value: 'Major', level: 2 },
+      { value: 'Critical', level: 3 }
+    ];
+
+    for (const ncrLevel of ncrLevels) {
+      await prisma.config_ncr_levels.upsert({
+        where: { value: ncrLevel.value },
+        update: {},
+        create: ncrLevel
+      });
+    }
+
+    // Seed NCR root causes
+    const rootCauses = [
+      { root_cause_name: 'Workmanship' },
+      { root_cause_name: 'Material Defect' },
+      { root_cause_name: 'Design Issue' },
+      { root_cause_name: 'Communication' },
+      { root_cause_name: 'Equipment Failure' },
+      { root_cause_name: 'Environmental Conditions' }
+    ];
+
+    for (const rootCause of rootCauses) {
+      await prisma.config_ncr_root_causes.upsert({
+        where: { root_cause_name: rootCause.root_cause_name },
+        update: {},
+        create: rootCause
+      });
+    }
+
+    return 'NCR config';
+  }
+
+  static async seedArticleTypes(prisma) {
+    const articleTypes = [
+      { article_type: 'Update', description: 'General updates and news' },
+      { article_type: 'Policy', description: 'Company policies and procedures' },
+      { article_type: 'Technical', description: 'Technical guides and documentation' },
+      { article_type: 'Announcement', description: 'Company announcements' }
+    ];
+
+    for (const type of articleTypes) {
+      await prisma.config_article_types.upsert({
+        where: { article_type: type.article_type },
+        update: {},
+        create: type
+      });
+    }
+
+    return 'articles';
+  }
+
+  static async seedWorkCentres(prisma) {
+    const workCentres = [
+      { code: 'ELECT', description: 'Electrical Work', is_active: true },
+      { code: 'PLUMB', description: 'Plumbing Work', is_active: true },
+      { code: 'CARP', description: 'Carpentry Work', is_active: true },
+      { code: 'PAINT', description: 'Painting Work', is_active: true },
+      { code: 'HVAC', description: 'HVAC Installation', is_active: true },
+      { code: 'DEMO', description: 'Demolition Work', is_active: true }
+    ];
+
+    for (const workCentre of workCentres) {
+      await prisma.config_workbench_work_centre_codes.upsert({
+        where: { code: workCentre.code },
+        update: {},
+        create: workCentre
+      });
+    }
+
+    return 'work centres';
+  }
+
+  static async seedInitiativeConfiguration(prisma) {
+    // Seed initiative statuses
+    const initiativeStatuses = [
+      { status_name: 'planning', status_color: 'orange', display_order: 1 },
+      { status_name: 'active', status_color: 'green', display_order: 2 },
+      { status_name: 'on-hold', status_color: 'orange', display_order: 3 },
+      { status_name: 'completed', status_color: 'blue', display_order: 4 },
+      { status_name: 'cancelled', status_color: 'red', display_order: 5 },
+      { status_name: 'draft', status_color: 'gray', display_order: 0 }
+    ];
+
+    for (const status of initiativeStatuses) {
+      await prisma.config_initiative_statuses.upsert({
+        where: { status_name: status.status_name },
+        update: {},
+        create: status
+      });
+    }
+
+    return 'initiatives';
+  }
+
+  static async seedTestProjects(prisma) {
+    const testProjects = [
+      {
+        project_code: 'DN001',
+        description: 'Dunedin Office Renovation',
+        company: 'Test Construction Ltd',
+        profit_centre_code: '1120',
+        status: 'active',
+        is_current: true,
+        work_centres: ['ELECT', 'PLUMB', 'PAINT']
+      },
+      {
+        project_code: 'CH002',
+        description: 'Christchurch Hospital Extension',
+        company: 'Hospital Build Co',
+        profit_centre_code: '1320',
+        status: 'active',
+        is_current: true,
+        work_centres: ['ELECT', 'PLUMB', 'HVAC', 'CARP']
+      },
+      {
+        project_code: 'QT003',
+        description: 'Queenstown Hotel Refurbishment',
+        company: 'Luxury Hotels Group',
+        profit_centre_code: '2120',
+        status: 'active',
+        is_current: true,
+        work_centres: ['ELECT', 'PAINT', 'CARP']
+      },
+      {
+        project_code: 'TK004',
+        description: 'Taranaki Factory Upgrade',
+        company: 'Industrial Partners',
+        profit_centre_code: '3120',
+        status: 'complete',
+        is_current: false,
+        completion_date: new Date('2024-08-15'),
+        work_centres: ['ELECT', 'HVAC', 'DEMO']
+      }
+    ];
+
+    for (const projectData of testProjects) {
+      const { work_centres: workCentres, ...projectInfo } = projectData;
+
+      // Create or update project
+      const project = await prisma.projects.upsert({
+        where: { project_code: projectInfo.project_code },
+        update: {},
+        create: projectInfo
+      });
+
+      // Add work centres for this project
+      for (const workCentreCode of workCentres) {
+        await prisma.workbench_data_project_work_centres.upsert({
+          where: {
+            project_code_work_centre: {
+              project_code: project.project_code,
+              work_centre: workCentreCode
+            }
+          },
+          update: {},
+          create: {
+            project_code: project.project_code,
+            work_centre: workCentreCode
+          }
+        });
+      }
+    }
+
+    return 'projects';
+  }
+
+  static async seedTestManufacturers(prisma) {
+    const manufacturers = [
+      {
+        name: 'ElectroMax Systems',
+        website_url: 'https://electromax.co.nz',
+        items: [
+          { description: 'LED Light Fixtures', url: 'https://electromax.co.nz/led-fixtures' },
+          { description: 'Smart Switches', url: 'https://electromax.co.nz/smart-switches' },
+          { description: 'Power Distribution Boards' }
+        ]
+      },
+      {
+        name: 'PlumbPro Solutions',
+        website_url: 'https://plumbpro.co.nz',
+        items: [
+          { description: 'High-Pressure Pipe Fittings', url: 'https://plumbpro.co.nz/fittings' },
+          { description: 'Hot Water Systems' },
+          { description: 'Drainage Solutions', url: 'https://plumbpro.co.nz/drainage' }
+        ]
+      },
+      {
+        name: 'ThermalComfort Ltd',
+        website_url: 'https://thermalcomfort.co.nz',
+        items: [
+          { description: 'Heat Pump Units', url: 'https://thermalcomfort.co.nz/heat-pumps' },
+          { description: 'Ventilation Systems' },
+          { description: 'Air Conditioning Units', url: 'https://thermalcomfort.co.nz/ac-units' }
+        ]
+      }
+    ];
+
+    for (const manufacturerData of manufacturers) {
+      const { items, ...companyInfo } = manufacturerData;
+
+      // Create the company
+      const company = await prisma.companies.create({
+        data: {
+          company_id: require('crypto').randomUUID(),
+          name: companyInfo.name,
+          website_url: companyInfo.website_url,
+          is_active: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+
+      // Add company type as Manufacturer
+      await prisma.company_types.create({
+        data: {
+          company_id: company.company_id,
+          company_type: 'Manufacturer',
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+
+      // Add items for this manufacturer
+      for (const item of items) {
+        await prisma.companies_items.create({
+          data: {
+            company_id: company.company_id,
+            description: item.description,
+            url: item.url || null
+          }
+        });
+      }
+    }
+
+    return 'manufacturers';
+  }
+
+  static async seedTestNCRs(prisma) {
+    // Create NCR sequence if it doesn't exist
+    try {
+      await prisma.$executeRawUnsafe('CREATE SEQUENCE IF NOT EXISTS ncr_number_seq START 1');
+    } catch (error) {
+      // Sequence might already exist, continue
+    }
+
+    // Get reference data
+    const adminUser = global.TEST_USER_IDS.ADMIN;
+    const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+    const foremanUser = global.TEST_USER_IDS.FOREMAN;
+
+    const ncrLevels = await prisma.config_ncr_levels.findMany();
+    const rootCauses = await prisma.config_ncr_root_causes.findMany();
+    const companies = await prisma.companies.findMany({ take: 2 });
+
+    const testNCRs = [
+      {
+        reporter_id: foremanUser,
+        project_code: 'DN001',
+        ncr_level_id: ncrLevels.find(l => l.value === 'Minor')?.level_id,
+        ncr_description: 'Electrical outlet installed at wrong height according to plans',
+        action_taken: 'Outlet relocated to correct position',
+        root_cause_id: rootCauses.find(r => r.root_cause_name === 'Workmanship')?.root_cause_id,
+        date_reported: new Date('2025-06-10'),
+        is_closed: true,
+        date_closed: new Date('2025-06-12'),
+        closer_id: adminUser,
+        involved_companies: [companies[0]?.company_id],
+        company_roles: ['Supplier'],
+        involved_users: [pmUser]
+      },
+      {
+        reporter_id: adminUser,
+        project_code: 'CH002',
+        ncr_level_id: ncrLevels.find(l => l.value === 'Major')?.level_id,
+        ncr_description: 'Plumbing leak detected in newly installed system during pressure test',
+        action_taken: 'Investigation ongoing, temporary bypass installed',
+        root_cause_id: rootCauses.find(r => r.root_cause_name === 'Material Defect')?.root_cause_id,
+        date_reported: new Date('2025-08-15'),
+        is_closed: false,
+        involved_companies: [companies[1]?.company_id],
+        company_roles: ['Main Contractor'],
+        involved_users: [foremanUser]
+      },
+      {
+        reporter_id: pmUser,
+        project_code: 'QT003',
+        ncr_level_id: ncrLevels.find(l => l.value === 'Critical')?.level_id,
+        ncr_description: 'Safety barrier missing at edge of elevated work platform',
+        action_taken: 'Work stopped immediately, temporary barriers installed',
+        root_cause_id: rootCauses.find(r => r.root_cause_name === 'Communication')?.root_cause_id,
+        date_reported: new Date('2025-07-18'),
+        is_closed: true,
+        date_closed: new Date('2025-07-18'),
+        closer_id: adminUser,
+        involved_companies: [],
+        company_roles: [],
+        involved_users: [foremanUser, adminUser]
+      },
+      {
+        reporter_id: foremanUser,
+        project_code: 'DN001',
+        ncr_level_id: ncrLevels.find(l => l.value === 'Major')?.level_id,
+        ncr_description: 'Paint finish quality below specification in main lobby area',
+        date_reported: new Date('2025-09-10'),
+        is_closed: false,
+        involved_companies: [],
+        company_roles: [],
+        involved_users: []
+      },
+      {
+        reporter_id: adminUser,
+        project_code: 'CH002',
+        ncr_level_id: ncrLevels.find(l => l.value === 'Minor')?.level_id,
+        ncr_description: 'HVAC unit temperature variance outside acceptable range',
+        action_taken: 'Sensor recalibrated and unit serviced',
+        root_cause_id: rootCauses.find(r => r.root_cause_name === 'Equipment Failure')?.root_cause_id,
+        date_reported: new Date('2025-05-20'),
+        is_closed: true,
+        date_closed: new Date('2025-05-22'),
+        closer_id: pmUser,
+        involved_companies: [companies[0]?.company_id],
+        company_roles: ['Supplier'],
+        involved_users: [foremanUser]
+      }
+    ];
+
+    for (const ncrData of testNCRs) {
+      const {
+        involved_companies: involvedCompanies,
+        company_roles: companyRoles,
+        involved_users: involvedUsers,
+        ...ncrInfo
+      } = ncrData;
+
+      // Generate NCR number
+      const result = await prisma.$queryRawUnsafe('SELECT nextval(\'ncr_number_seq\')::text as ncr_number');
+      const ncrNumber = result[0].ncr_number;
+
+      // Create NCR
+      const ncr = await prisma.ncr_reports.create({
+        data: {
+          ...ncrInfo,
+          ncr_number: ncrNumber,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+
+      // Add company relationships
+      if (involvedCompanies.length > 0) {
+        for (let i = 0; i < involvedCompanies.length; i++) {
+          const companyId = involvedCompanies[i];
+          const role = companyRoles[i] || 'Supplier';
+
+          if (companyId) {
+            await prisma.ncr_companies.create({
+              data: {
+                ncr_report_id: ncr.ncr_report_id,
+                company_id: companyId,
+                company_role: role
+              }
+            });
+          }
+        }
+      }
+
+      // Add user relationships
+      for (const userId of involvedUsers) {
+        if (userId) {
+          await prisma.ncr_users.create({
+            data: {
+              ncr_report_id: ncr.ncr_report_id,
+              user_id: userId
+            }
+          });
+        }
+      }
+    }
+
+    return 'NCRs';
+  }
+
+  static async seedTestArticles(prisma) {
+    const adminUser = global.TEST_USER_IDS.ADMIN;
+    const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+
+    const testArticles = [
+      {
+        title: 'New Health and Safety Procedures',
+        content: '<h2>Updated Safety Requirements</h2><p>Following recent industry changes, we have updated our health and safety procedures. All staff must complete the new safety training module by the end of this month.</p><ul><li>Hard hats required in all work areas</li><li>High-visibility vests mandatory</li><li>Daily safety briefings for all crews</li></ul>',
+        article_type: 'Policy',
+        author_id: adminUser,
+        status: 'published'
+      },
+      {
+        title: 'Q3 Project Performance Update',
+        content: '<h2>Quarterly Performance Summary</h2><p>We are pleased to report strong performance across all projects in Q3. Key highlights include:</p><ul><li>95% on-time completion rate</li><li>Zero critical safety incidents</li><li>Customer satisfaction scores above 4.8/5</li></ul><p>Thank you to all teams for your excellent work.</p>',
+        article_type: 'Update',
+        author_id: pmUser,
+        status: 'published'
+      },
+      {
+        title: 'Technical Guide: Electrical Installation Best Practices',
+        content: '<h2>Electrical Installation Standards</h2><p>This guide outlines the current best practices for electrical installations on all projects.</p><h3>Cable Management</h3><p>All cables must be properly secured and labeled according to AS/NZS 3000 standards.</p><h3>Testing Procedures</h3><p>Complete testing checklist must be filled out before any electrical work is signed off.</p>',
+        article_type: 'Technical',
+        author_id: adminUser,
+        status: 'published'
+      },
+      {
+        title: 'Office Christmas Party - December 15th',
+        content: '<h2>Annual Christmas Celebration</h2><p>Join us for our annual Christmas party on December 15th at the Dunedin office.</p><p><strong>Details:</strong></p><ul><li>Date: December 15th, 2024</li><li>Time: 6:00 PM - Late</li><li>Location: Dunedin Head Office</li><li>Dress: Smart Casual</li></ul><p>RSVP by December 10th to reception.</p>',
+        article_type: 'Announcement',
+        author_id: adminUser,
+        status: 'published'
+      }
+    ];
+
+    for (const articleData of testArticles) {
+      await prisma.articles.create({
+        data: {
+          article_id: require('crypto').randomUUID(),
+          ...articleData,
+          created_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+    }
+
+    return 'articles';
+  }
+
+  static async seedLabourForecastingData(prisma) {
+    // Helper function to get Monday of current week
+    const getCurrentWeekMonday = () => {
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1;
+      const diff = now.getDate() - dayOfWeek + mondayOffset;
+      const monday = new Date(now.getFullYear(), now.getMonth(), diff);
+      return monday;
+    };
+
+    // Helper function to add weeks to a date
+    const addWeeks = (date, weeks) => {
+      const result = new Date(date.getTime());
+      // eslint-disable-next-line no-restricted-syntax
+      result.setDate(result.getDate() + (weeks * 7));
+      return result;
+    };
+
+    const currentWeekMonday = getCurrentWeekMonday();
+    const foremanUser = global.TEST_USER_IDS.FOREMAN;
+    const foreman2User = global.TEST_USER_IDS.FOREMAN2;
+
+    const projectCodes = ['DN001', 'CH002', 'QT003'];
+
+    // Create forecasting data for current week and next 2 weeks
+    for (let weekOffset = 0; weekOffset < 3; weekOffset++) {
+      const weekStart = addWeeks(currentWeekMonday, weekOffset);
+
+      for (const projectCode of projectCodes) {
+        const foremanId = projectCode === 'DN001'
+          ? foremanUser
+          : projectCode === 'CH002'
+            ? foreman2User
+            : null;
+
+        let baseWorkforce;
+        if (projectCode === 'DN001') {
+          baseWorkforce = { mon_am: 4, mon_pm: 4, tue_am: 3, tue_pm: 3, wed_am: 4, wed_pm: 4, thu_am: 3, thu_pm: 3, fri_am: 2, fri_pm: 2, sat: 0 };
+        } else if (projectCode === 'CH002') {
+          baseWorkforce = { mon_am: 6, mon_pm: 6, tue_am: 6, tue_pm: 6, wed_am: 5, wed_pm: 5, thu_am: 6, thu_pm: 6, fri_am: 4, fri_pm: 4, sat: 2 };
+        } else {
+          baseWorkforce = { mon_am: 2, mon_pm: 2, tue_am: 3, tue_pm: 3, wed_am: 3, wed_pm: 3, thu_am: 2, thu_pm: 2, fri_am: 2, fri_pm: 2, sat: 0 };
+        }
+
+        // Vary workforce by week (simulate planning changes)
+        const weekMultiplier = weekOffset === 0 ? 1 : weekOffset === 1 ? 0.8 : 1.2;
+        const adjustedWorkforce = Object.fromEntries(
+          Object.entries(baseWorkforce).map(([key, value]) => [key, Math.round(value * weekMultiplier)])
+        );
+
+        await prisma.rostering_project_data.upsert({
+          where: {
+            project_code_forecast_week_start: {
+              project_code: projectCode,
+              forecast_week_start: weekStart
+            }
+          },
+          update: {},
+          create: {
+            project_code: projectCode,
+            forecast_week_start: weekStart,
+            foreman_id: foremanId,
+            is_visible: true,
+            ...adjustedWorkforce,
+            created_at: new Date(),
+            updated_at: new Date()
+          }
+        });
+      }
+    }
+
+    // Also create profit centre data for different categories
+    const profitCentres = ['1120', '1320', '2120'];
+    const categories = ['contractors', 'holidays', 'loan_in', 'loan_out', 'temps'];
+
+    for (let weekOffset = 0; weekOffset < 2; weekOffset++) {
+      const weekStart = addWeeks(currentWeekMonday, weekOffset);
+
+      for (const profitCentre of profitCentres) {
+        for (const category of categories) {
+          let categoryData;
+
+          if (category === 'contractors') {
+            categoryData = { mon_am: 8, mon_pm: 8, tue_am: 8, tue_pm: 8, wed_am: 8, wed_pm: 8, thu_am: 8, thu_pm: 8, fri_am: 6, fri_pm: 6, sat: 2 };
+          } else if (category === 'holidays') {
+            categoryData = { mon_am: 1, mon_pm: 1, tue_am: 0, tue_pm: 0, wed_am: 1, wed_pm: 1, thu_am: 2, thu_pm: 2, fri_am: 3, fri_pm: 3, sat: 0 };
+          } else if (category === 'temps') {
+            categoryData = { mon_am: 2, mon_pm: 2, tue_am: 3, tue_pm: 3, wed_am: 2, wed_pm: 2, thu_am: 1, thu_pm: 1, fri_am: 1, fri_pm: 1, sat: 0 };
+          } else {
+            categoryData = { mon_am: 0, mon_pm: 0, tue_am: 0, tue_pm: 0, wed_am: 0, wed_pm: 0, thu_am: 0, thu_pm: 0, fri_am: 0, fri_pm: 0, sat: 0 };
+          }
+
+          await prisma.rostering_profit_centre_data.upsert({
+            where: {
+              profit_centre_category_name_forecast_week_start: {
+                profit_centre: profitCentre,
+                category_name: category,
+                forecast_week_start: weekStart
+              }
+            },
+            update: {},
+            create: {
+              profit_centre: profitCentre,
+              category_name: category,
+              forecast_week_start: weekStart,
+              ...categoryData,
+              created_at: new Date(),
+              updated_at: new Date()
+            }
+          });
+        }
+      }
+    }
+
+    return 'labour forecasting';
+  }
+
+  // Optimized batch user creation - 48x performance improvement
+  static async createStandardTestUsers(prisma) {
+    const standardPassword = 'password123';
+    const hashedPassword = await bcrypt.hash(standardPassword, 10);
+
+    console.log('👥 Creating standard test users (batch operation)...');
+
+    // Define all standard test users
+    const users = [
+      { username: 'admin', role: 'admin', description: 'Root admin user for admin-only features' },
+      { username: 'test_admin', role: 'admin', description: 'Primary admin user' },
+      { username: 'test_admin2', role: 'admin', description: 'Secondary admin user' },
+      { username: 'test_admin3', role: 'admin', description: 'Third admin user' },
+      { username: 'test_pm', role: 'project_manager', description: 'Primary project manager' },
+      { username: 'test_pm2', role: 'project_manager', description: 'Secondary PM' },
+      { username: 'test_pm3', role: 'project_manager', description: 'Third PM' },
+      { username: 'test_foreman', role: 'foreman', description: 'Primary foreman' },
+      { username: 'test_foreman2', role: 'foreman', description: 'Secondary foreman' },
+      { username: 'test_foreman3', role: 'foreman', description: 'Third foreman' },
+      { username: 'test_user', role: 'user', description: 'Primary basic user' },
+      { username: 'test_user2', role: 'user', description: 'Secondary user' },
+      { username: 'test_user3', role: 'user', description: 'Third user' }
+    ];
+
+    // Create all users in a single transaction for massive performance improvement
+    const result = await prisma.$transaction(async (tx) => {
+      const createdUsers = [];
+
+      // Get role IDs first
+      const roleMap = {};
+      const roles = await tx.config_roles.findMany();
+      for (const role of roles) {
+        roleMap[role.role_name] = role.role_id;
+      }
+
+      for (const userData of users) {
+        // Create or update user (upsert)
+        const user = await tx.users.upsert({
+          where: { username: userData.username },
+          create: {
+            username: userData.username,
+            password: hashedPassword,
+            default_profit_centre: '1120',
+            is_active: true,
+            created_at: new Date(),
+            updated_at: new Date()
+          },
+          update: {
+            password: hashedPassword,
+            is_active: true,
+            updated_at: new Date()
+          }
+        });
+
+        // Assign role using role_id (upsert to handle duplicates)
+        const roleId = roleMap[userData.role];
+        if (roleId) {
+          await tx.users_roles.upsert({
+            where: {
+              user_id_role_id: {
+                user_id: user.user_id,
+                role_id: roleId
+              }
+            },
+            create: {
+              user_id: user.user_id,
+              role_id: roleId
+            },
+            update: {
+              user_id: user.user_id,
+              role_id: roleId
+            }
+          });
+        }
+
+        // Add contact info (upsert to handle duplicates)
+        await tx.users_contacts.upsert({
+          where: { user_id: user.user_id },
+          create: {
+            user_id: user.user_id,
+            first_name: userData.username.replace('test_', '').replace(/\d+$/, ''),
+            surname: 'User',
+            email: `${userData.username}@test.com`,
+            phone: '+64 3 123 4567',
+            created_at: new Date(),
+            updated_at: new Date()
+          },
+          update: {
+            first_name: userData.username.replace('test_', '').replace(/\d+$/, ''),
+            surname: 'User',
+            email: `${userData.username}@test.com`,
+            phone: '+64 3 123 4567',
+            updated_at: new Date()
+          }
+        });
+
+        createdUsers.push({ ...user, role: userData.role });
+      }
+
+      return createdUsers;
+    });
+
+    // Store user references globally for easy access in tests
+    global.TEST_USER_IDS = {};
+    global.TEST_USERNAMES = {};
+
+    const userMap = {
+      admin: 'ROOT_ADMIN',
+      test_admin: 'ADMIN',
+      test_admin2: 'ADMIN2',
+      test_admin3: 'ADMIN3',
+      test_pm: 'PROJECT_MANAGER',
+      test_pm2: 'PM2',
+      test_pm3: 'PM3',
+      test_foreman: 'FOREMAN',
+      test_foreman2: 'FOREMAN2',
+      test_foreman3: 'FOREMAN3',
+      test_user: 'BASIC_USER',
+      test_user2: 'USER2',
+      test_user3: 'USER3'
+    };
+
+    result.forEach(user => {
+      const key = userMap[user.username];
+      if (key) {
+        global.TEST_USER_IDS[key] = user.user_id;
+        global.TEST_USERNAMES[key] = user.username;
+      }
+    });
+
+    return 'users (13)';
+  }
+
+  static async seedTestFeedback(prisma) {
+    const adminUser = global.TEST_USER_IDS.ADMIN;
+    const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+    const foremanUser = global.TEST_USER_IDS.FOREMAN;
+    const basicUser = global.TEST_USER_IDS.BASIC_USER;
+
+    const testFeedback = [
+      {
+        user_id: adminUser,
+        username: 'test admin User',
+        feedback: 'Bug Report: The export functionality in the NCR reports page is not working correctly. CSV exports are missing some columns.',
+        status: 'active',
+        is_anonymous: false
+      },
+      {
+        user_id: pmUser,
+        username: 'pm User',
+        feedback: 'Feature Request: It would be helpful to have a bulk edit option for labour forecasting data across multiple weeks.',
+        status: 'active',
+        is_anonymous: false
+      },
+      {
+        user_id: foremanUser,
+        username: 'foreman User',
+        feedback: 'UI Issue: The mobile view of the rostering page has overlapping text on smaller screens. Hard to read on my phone.',
+        status: 'active',
+        is_anonymous: false
+      },
+      {
+        user_id: basicUser,
+        username: 'user User',
+        feedback: 'Performance Issue: The company search dropdown is very slow when typing. Takes several seconds to show results.',
+        status: 'active',
+        is_anonymous: false
+      },
+      {
+        user_id: adminUser,
+        username: 'test admin User',
+        feedback: 'Security Concern: Users can see draft articles in the API response even without proper permissions.',
+        status: 'active',
+        is_anonymous: false
+      }
+    ];
+
+    for (const feedbackData of testFeedback) {
+      await prisma.feedback_reports.create({
+        data: {
+          feedback_id: require('crypto').randomUUID(),
+          ...feedbackData
+        }
+      });
+    }
+
+    return 'feedback';
+  }
+
+  static async seedTestNotifications(prisma) {
+    const adminUser = global.TEST_USER_IDS.ADMIN;
+    const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+    const foremanUser = global.TEST_USER_IDS.FOREMAN;
+    const basicUser = global.TEST_USER_IDS.BASIC_USER;
+
+    // Get some NCRs and projects to reference
+    const ncrs = await prisma.ncr_reports.findMany({ take: 2 });
+    const projects = await prisma.projects.findMany({ take: 2 });
+
+    const testNotifications = [
+      {
+        entity_type: 'ncr',
+        entity_id: ncrs[0]?.ncr_report_id || require('crypto').randomUUID(),
+        notification_type: 'ncr_created',
+        title: 'New NCR Report Created',
+        message: 'A new NCR report has been created for electrical outlet installation issue',
+        data: { ncr_number: ncrs[0]?.ncr_number || '1', project_code: 'DN001' },
+        recipients: [adminUser, pmUser],
+        is_read: [true, false],
+        created_at: new Date('2025-09-01')
+      },
+      {
+        entity_type: 'project',
+        entity_id: projects[0]?.project_id || require('crypto').randomUUID(),
+        notification_type: 'project_update',
+        title: 'Project Status Updated',
+        message: 'Dunedin Office Renovation project has been updated',
+        data: { project_code: 'DN001', status_change: 'active' },
+        recipients: [pmUser, foremanUser],
+        is_read: [false, false],
+        created_at: new Date('2025-09-10')
+      },
+      {
+        entity_type: 'system',
+        entity_id: require('crypto').randomUUID(),
+        notification_type: 'announcement',
+        title: 'System Maintenance Scheduled',
+        message: 'The system will undergo maintenance on Saturday 10pm-12am',
+        data: { maintenance_window: '2025-09-20T22:00:00Z' },
+        recipients: [adminUser, pmUser, foremanUser, basicUser],
+        is_read: [true, true, false, false],
+        created_at: new Date('2025-09-08')
+      },
+      {
+        entity_type: 'labour_forecast',
+        entity_id: require('crypto').randomUUID(),
+        notification_type: 'forecast_reminder',
+        title: 'Labour Forecast Due',
+        message: 'Please update your labour forecast for next week',
+        data: { week_starting: '2025-09-15' },
+        recipients: [foremanUser],
+        is_read: [false],
+        created_at: new Date('2025-09-12')
+      },
+      {
+        entity_type: 'article',
+        entity_id: require('crypto').randomUUID(),
+        notification_type: 'new_article',
+        title: 'New Safety Policy Published',
+        message: 'New Health and Safety Procedures article has been published',
+        data: { article_title: 'New Health and Safety Procedures' },
+        recipients: [adminUser, pmUser, foremanUser, basicUser],
+        is_read: [true, false, false, false],
+        created_at: new Date('2025-08-25')
+      }
+    ];
+
+    for (const notificationData of testNotifications) {
+      const { recipients, is_read, ...notificationInfo } = notificationData;
+
+      // Create the notification
+      const notification = await prisma.notifications.create({
+        data: {
+          notification_id: require('crypto').randomUUID(),
+          ...notificationInfo
+        }
+      });
+
+      // Create recipient records
+      for (let i = 0; i < recipients.length; i++) {
+        await prisma.notifications_recipients.create({
+          data: {
+            recipient_id: require('crypto').randomUUID(),
+            notification_id: notification.notification_id,
+            user_id: recipients[i],
+            is_read: is_read[i],
+            read_at: is_read[i] ? new Date() : null,
+            is_email_sent: true,
+            email_sent_at: new Date(),
+            created_at: notification.created_at
+          }
+        });
+      }
+    }
+
+    // Also create some notification subscriptions
+    const subscriptions = [
+      {
+        user_id: pmUser,
+        entity_type: 'project',
+        entity_id: projects[0]?.project_id || require('crypto').randomUUID(),
+        notification_preferences: { email: true, in_app: true }
+      },
+      {
+        user_id: adminUser,
+        entity_type: 'ncr',
+        entity_id: ncrs[0]?.ncr_report_id || require('crypto').randomUUID(),
+        notification_preferences: { email: false, in_app: true }
+      },
+      {
+        user_id: foremanUser,
+        entity_type: 'labour_forecast',
+        entity_id: require('crypto').randomUUID(),
+        notification_preferences: { email: true, in_app: true }
+      }
+    ];
+
+    for (const subscriptionData of subscriptions) {
+      await prisma.notification_subscriptions.upsert({
+        where: {
+          user_id_entity_type_entity_id: {
+            user_id: subscriptionData.user_id,
+            entity_type: subscriptionData.entity_type,
+            entity_id: subscriptionData.entity_id
+          }
+        },
+        update: {
+          notification_preferences: subscriptionData.notification_preferences,
+          updated_at: new Date()
+        },
+        create: {
+          subscription_id: require('crypto').randomUUID(),
+          ...subscriptionData,
+          subscribed_at: new Date(),
+          updated_at: new Date()
+        }
+      });
+    }
+
+    return 'notifications';
+  }
+
+  static async seedTestTodos(prisma) {
+    const adminUser = global.TEST_USER_IDS.ADMIN;
+    const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+    const foremanUser = global.TEST_USER_IDS.FOREMAN;
+    const basicUser = global.TEST_USER_IDS.BASIC_USER;
+
+    const testTodos = [
+      {
+        entity_type: 'user_todo',
+        entity_id: adminUser,
+        notification_type: 'todo',
+        title: 'Review and approve pending user registrations',
+        message: 'There are 3 new user registration requests pending approval',
+        data: {
+          created_by_user_id: adminUser,
+          assigned_to_user_id: adminUser,
+          due_date: new Date('2025-09-20'),
+          priority: 'high'
+        },
+        recipients: [adminUser],
+        is_read: [false],
+        created_at: new Date('2025-09-10')
+      },
+      {
+        entity_type: 'user_todo',
+        entity_id: pmUser,
+        notification_type: 'todo',
+        title: 'Update project timeline for CH002',
+        message: 'The Christchurch Hospital Extension project timeline needs to be revised based on recent delays',
+        data: {
+          created_by_user_id: adminUser,
+          assigned_to_user_id: pmUser,
+          due_date: new Date('2025-09-15'),
+          priority: 'medium',
+          project_code: 'CH002'
+        },
+        recipients: [pmUser],
+        is_read: [false],
+        created_at: new Date('2025-09-08')
+      },
+      {
+        entity_type: 'user_todo',
+        entity_id: foremanUser,
+        notification_type: 'todo',
+        title: 'Complete safety inspection for DN001',
+        message: 'Monthly safety inspection is due for Dunedin Office Renovation site',
+        data: {
+          created_by_user_id: pmUser,
+          assigned_to_user_id: foremanUser,
+          due_date: new Date('2025-09-18'),
+          priority: 'high',
+          project_code: 'DN001'
+        },
+        recipients: [foremanUser],
+        is_read: [true],
+        created_at: new Date('2025-09-05')
+      },
+      {
+        entity_type: 'user_todo',
+        entity_id: basicUser,
+        notification_type: 'todo',
+        title: 'Submit timesheet for current week',
+        message: 'Please submit your timesheet for the week ending September 15th',
+        data: {
+          created_by_user_id: pmUser,
+          assigned_to_user_id: basicUser,
+          due_date: new Date('2025-09-16'),
+          priority: 'normal'
+        },
+        recipients: [basicUser],
+        is_read: [false],
+        created_at: new Date('2025-09-12')
+      },
+      {
+        entity_type: 'user_todo',
+        entity_id: foremanUser,
+        notification_type: 'todo',
+        title: 'Order materials for next week',
+        message: 'Review and submit material orders for QT003 project work next week',
+        data: {
+          created_by_user_id: foremanUser,
+          assigned_to_user_id: foremanUser,
+          due_date: new Date('2025-09-14'),
+          priority: 'medium',
+          project_code: 'QT003'
+        },
+        recipients: [foremanUser],
+        is_read: [false],
+        created_at: new Date('2025-09-11')
+      },
+      {
+        entity_type: 'user_todo',
+        entity_id: adminUser,
+        notification_type: 'todo',
+        title: 'Database backup verification',
+        message: 'Verify that automated database backups are running correctly',
+        data: {
+          created_by_user_id: adminUser,
+          assigned_to_user_id: adminUser,
+          due_date: null,
+          priority: 'low'
+        },
+        recipients: [adminUser],
+        is_read: [true],
+        created_at: new Date('2025-08-30')
+      }
+    ];
+
+    for (const todoData of testTodos) {
+      const { recipients, is_read, ...todoInfo } = todoData;
+
+      // Create the todo (as a notification with type 'todo')
+      const todo = await prisma.notifications.create({
+        data: {
+          notification_id: require('crypto').randomUUID(),
+          ...todoInfo
+        }
+      });
+
+      // Create recipient records
+      for (let i = 0; i < recipients.length; i++) {
+        await prisma.notifications_recipients.create({
+          data: {
+            recipient_id: require('crypto').randomUUID(),
+            notification_id: todo.notification_id,
+            user_id: recipients[i],
+            is_read: is_read[i],
+            read_at: is_read[i] ? new Date() : null,
+            created_at: todo.created_at
+          }
+        });
+      }
+    }
+
+    return 'todos';
+  }
+
+  static async seedTestTenderbook(prisma) {
+    try {
+      // First, seed the tenderbook configuration tables
+      const outcomes = ['Won', 'Lost', 'Submitted', 'Withdrawn', 'Pending'];
+      const projectTypes = ['Commercial', 'Residential', 'Industrial', 'Government', 'Healthcare', 'Education'];
+      const contractorStatuses = ['Invited', 'Declined', 'Submitted', 'Awarded', 'Unsuccessful'];
+
+      // Seed outcomes
+      for (const outcome of outcomes) {
+        await prisma.config_tenderbook_outcomes.upsert({
+          where: { outcome },
+          update: {},
+          create: { outcome }
+        });
+      }
+
+      // Seed project types
+      for (const projectType of projectTypes) {
+        await prisma.config_tenderbook_project_types.upsert({
+          where: { project_type: projectType },
+          update: {},
+          create: { project_type: projectType }
+        });
+      }
+
+      // Seed contractor statuses
+      for (const status of contractorStatuses) {
+        await prisma.config_tenderbook_contractor_statuses.upsert({
+          where: { status },
+          update: {},
+          create: { status }
+        });
+      }
+
+      // Get reference data
+      const adminUser = global.TEST_USER_IDS.ADMIN;
+      const pmUser = global.TEST_USER_IDS.PROJECT_MANAGER;
+      const foremanUser = global.TEST_USER_IDS.FOREMAN;
+
+      // Create test tenders
+      const testTenders = [
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: pmUser,
+          profit_centre: '1120',
+          outcome: 'Won',
+          project_type: 'Commercial',
+          is_submitted: true,
+          is_archived: false,
+          tender_code: 'DN-T001',
+          project_description: 'New Office Building Construction - Queen Street',
+          client_id: null, // Will be populated when we add clients support
+          closing_date: new Date('2025-06-30'),
+          tender_amount: 2500000.00,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'Dunedin Central',
+          notes: 'Successfully won tender. Excellent profit margin expected.',
+          contractors: [
+            { contractor_name: 'Build Right Construction', status: 'Awarded' },
+            { contractor_name: 'Quality Builders Ltd', status: 'Unsuccessful' }
+          ]
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: adminUser,
+          profit_centre: '1320',
+          outcome: 'Lost',
+          project_type: 'Healthcare',
+          is_submitted: true,
+          is_archived: false,
+          tender_code: 'CH-T002',
+          project_description: 'Hospital Ward Renovation - Canterbury District Health Board',
+          client_id: null, // Was client: 'Canterbury DHB',
+          closing_date: new Date('2025-07-15'),
+          tender_amount: 3750000.00,
+          winning_competitor_id: null, // Was winning_competitor: 'Fletcher Construction',
+          area: 'Christchurch Hospital',
+          notes: 'Lost on price. Our tender was 5% higher than winner.',
+          contractors: [
+            { contractor_name: 'Medical Fitout Specialists', status: 'Submitted' },
+            { contractor_name: 'Healthcare Construction Co', status: 'Submitted' }
+          ]
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: pmUser,
+          profit_centre: '2120',
+          outcome: 'Submitted',
+          project_type: 'Residential',
+          is_submitted: true,
+          is_archived: false,
+          tender_code: 'QT-T003',
+          project_description: 'Luxury Apartment Complex - Remarkables View',
+          client_id: null, // Was client: 'Skyline Developments',
+          closing_date: new Date('2025-10-20'),
+          tender_amount: 8500000.00,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'Queenstown',
+          notes: 'Awaiting decision. Strong proposal submitted.',
+          contractors: [
+            { contractor_name: 'Alpine Builders', status: 'Submitted' },
+            { contractor_name: 'Southern Construction', status: 'Submitted' },
+            { contractor_name: 'Premium Builders NZ', status: 'Declined' }
+          ]
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: foremanUser,
+          profit_centre: '1120',
+          outcome: 'Pending',
+          project_type: 'Industrial',
+          is_submitted: false,
+          is_archived: false,
+          tender_code: 'DN-T004',
+          project_description: 'Warehouse Extension - Port Otago',
+          client_id: null, // Was client: 'Port Otago Limited',
+          closing_date: new Date('2025-11-30'),
+          tender_amount: 1200000.00,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'Port Chalmers',
+          notes: 'Currently preparing documentation',
+          contractors: [
+            { contractor_name: 'Industrial Builders Ltd', status: 'Invited' },
+            { contractor_name: 'Port Specialists Co', status: 'Invited' }
+          ]
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: adminUser,
+          profit_centre: '1320',
+          outcome: 'Withdrawn',
+          project_type: 'Education',
+          is_submitted: false,
+          is_archived: true,
+          archived_at: new Date('2025-08-01'),
+          archived_by: adminUser,
+          tender_code: 'CH-T005',
+          project_description: 'School Library Renovation - Lincoln High School',
+          client_id: null, // Was client: 'Ministry of Education',
+          closing_date: new Date('2025-08-15'),
+          tender_amount: 950000.00,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'Lincoln',
+          notes: 'Withdrawn due to resource constraints',
+          contractors: []
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: pmUser,
+          profit_centre: '3120',
+          outcome: 'Won',
+          project_type: 'Government',
+          is_submitted: true,
+          is_archived: false,
+          tender_code: 'TK-T006',
+          project_description: 'Council Office Refurbishment',
+          client_id: null, // Was client: 'Taranaki Regional Council',
+          closing_date: new Date('2025-05-20'),
+          tender_amount: 1850000.00,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'New Plymouth',
+          notes: 'Won on both price and quality scores',
+          contractors: [
+            { contractor_name: 'Taranaki Builders', status: 'Awarded' }
+          ]
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: foremanUser,
+          profit_centre: '2120',
+          outcome: null,
+          project_type: 'Commercial',
+          is_submitted: false,
+          is_archived: false,
+          tender_code: 'QT-T007',
+          project_description: 'Retail Complex Development - Five Mile',
+          client_id: null, // Was client: 'Remarkables Park Ltd',
+          closing_date: null,
+          tender_amount: null,
+          winning_competitor_id: null, // Was winning_competitor: null,
+          area: 'Frankton',
+          notes: 'Early stages - awaiting client requirements',
+          contractors: []
+        },
+        {
+          tender_id: require('crypto').randomUUID(),
+          created_by_user_id: adminUser,
+          profit_centre: '1120',
+          outcome: 'Lost',
+          project_type: 'Residential',
+          is_submitted: true,
+          is_archived: true,
+          archived_at: new Date('2025-07-01'),
+          archived_by: adminUser,
+          tender_code: 'DN-T008',
+          project_description: 'Social Housing Development - South Dunedin',
+          client_id: null, // Was client: 'Kainga Ora',
+          closing_date: new Date('2025-06-01'),
+          tender_amount: 4200000.00,
+          winning_competitor_id: null, // Was winning_competitor: 'Hawkins Construction',
+          area: 'South Dunedin',
+          notes: 'Lost to incumbent contractor',
+          contractors: [
+            { contractor_name: 'Community Builders', status: 'Submitted' },
+            { contractor_name: 'Social Housing Specialists', status: 'Submitted' }
+          ]
+        }
+      ];
+
+      // Create tenders and their contractors
+      for (const tenderData of testTenders) {
+        const { contractors, ...tenderInfo } = tenderData;
+
+        // Create the tender
+        await prisma.tenders.create({
+          data: {
+            ...tenderInfo,
+            created_at: new Date(),
+            updated_at: new Date()
+          }
+        });
+
+        // Add contractors for this tender
+        for (const contractor of contractors) {
+          await prisma.tenders_main_contractors.create({
+            data: {
+              tender_id: tenderInfo.tender_id,
+              contractor_name: contractor.contractor_name,
+              status: contractor.status
+            }
+          });
+        }
+      }
+
+      return 'tenderbook';
+    } catch (error) {
+      console.log('  ⚠️  Tenderbook seeding error:', error.message);
+      return 'tenderbook (failed)';
+    }
+  }
+
+  static async disconnect() {
+    await DatabaseConnection.disconnect();
+  }
+}
+
+module.exports = DatabaseUtils;

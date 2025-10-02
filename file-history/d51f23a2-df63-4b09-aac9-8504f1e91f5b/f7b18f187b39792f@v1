@@ -1,0 +1,721 @@
+extends layout
+include includes/floating-input
+include includes/rich-editor
+include includes/waiting-spinner
+
+block head
+  link(href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css" rel="stylesheet")
+  script(src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.js")
+
+block pageHeader
+  .page-header
+    h1.page-title What's New
+    .page-actions
+      if hasEditRole
+        button.btn.btn-primary(onclick="openAddArticleModal()") Add Article
+
+block content
+  +waiting-spinner()
+  .filter-bar
+    .search-bar
+      .search-container
+        +floating-input({type: 'text', name: 'search', placeholder: 'Search...', classes: 'search-input', id: 'article-search'})
+        +floating-input({type: 'select', name: 'filter', placeholder: 'All Types', classes: 'search-filter', id: 'article-filter'})
+          option(value="") All Types
+          if articleTypes && articleTypes.length > 0
+            each type in articleTypes
+              option(value=type.article_type)= type.description
+        +reset-search-btn()
+  
+  if articles && articles.length > 0
+    .articles-section
+      each article in articles
+        .article-card(class=hasEditRole ? 'clickable-card' : '', data-article-id=article.article_id, data-article-type=article.article_type)
+          .article-header
+            h3= article.title
+          .article-content !{article.content}
+          .article-meta
+            if article.author
+              - const contact = article.author.users_contacts
+              if contact && (contact.first_name || contact.surname)
+                small.author Posted by #{contact.first_name || ''} #{contact.surname || ''}
+              else if article.author.username
+                small.author Posted by #{article.author.username}
+            if article.created_at
+              small.date #{new Date(article.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}
+  else
+    p No articles available.
+  
+  if hasEditRole
+    +new-modal('add-article-modal', 'Add Article', '/api/articles', 'POST')
+      .form-group
+        +floating-input({
+          type: 'text',
+          name: 'title',
+          placeholder: 'Title',
+          required: true,
+          id: 'title'
+        })
+      .form-group
+        +rich-editor({id: 'content-editor', name: 'content', placeholder: 'Content', required: true})
+      .form-group
+        +floating-input({
+          type: 'select',
+          name: 'article_type',
+          placeholder: 'Article Type',
+          required: true,
+          id: 'article_type'
+        })
+          if articleTypes && articleTypes.length > 0
+            each type, index in articleTypes
+              option(value=type.article_type, selected=(index === 0))= type.description
+  
+  if hasEditRole
+    - var editArticleButtons = [{text: 'Archive', classes: 'btn btn-danger', type: 'button', id: 'archive-article-btn'}, {text: 'Cancel', classes: 'btn btn-secondary new-modal-cancel', type: 'button'}, {text: 'Save', classes: 'btn btn-primary new-modal-submit', type: 'submit', form: 'edit-article-modal-form'}]
+    +new-modal('edit-article-modal', 'Edit Article', '#', 'PUT', editArticleButtons)
+      .form-group
+        +floating-input({
+          type: 'text',
+          name: 'title',
+          placeholder: 'Title',
+          required: true,
+          id: 'edit-title'
+        })
+      .form-group
+        +rich-editor({id: 'edit-content-editor', name: 'edit-content', placeholder: 'Content', required: true})
+      .form-group
+        +floating-input({
+          type: 'select',
+          name: 'article_type',
+          placeholder: 'Article Type',
+          required: true,
+          id: 'edit-article_type'
+        })
+          if articleTypes && articleTypes.length > 0
+            each type in articleTypes
+              option(value=type.article_type)= type.description
+
+  script.
+    let addQuill, editQuill;
+    
+    // Helper functions for DOM manipulation
+    function createArticleCard(article) {
+      const hasEditRole = #{hasEditRole ? 'true' : 'false'};
+      const contact = article.author?.users_contacts;
+      const authorName = contact && (contact.first_name || contact.surname) 
+        ? `${contact.first_name || ''} ${contact.surname || ''}`.trim()
+        : article.author?.username || '';
+      
+      const createdDate = new Date(article.created_at).toLocaleDateString('en-NZ', { 
+        day: 'numeric', 
+        month: 'short', 
+        year: 'numeric' 
+      });
+      
+      const cardHtml = `
+        <div class="article-card${hasEditRole ? ' clickable-card' : ''}" data-article-id="${article.article_id}" data-article-type="${article.article_type || ''}">
+          <div class="article-header">
+            <h3>${article.title}</h3>
+          </div>
+          <div class="article-content">${article.content}</div>
+          <div class="article-meta">
+            ${authorName ? `<small class="author">Posted by ${authorName}</small>` : ''}
+            ${article.created_at ? `<small class="date">${createdDate}</small>` : ''}
+          </div>
+        </div>
+      `;
+      
+      const div = document.createElement('div');
+      div.innerHTML = cardHtml;
+      const cardElement = div.firstElementChild;
+      
+      // Add click handler for edit functionality if hasEditRole
+      if (hasEditRole) {
+        cardElement.style.cursor = 'pointer';
+        cardElement.addEventListener('click', function(e) {
+          if (e.target.closest('a, button, input, select, textarea')) {
+            return;
+          }
+          const articleId = this.getAttribute('data-article-id');
+          if (articleId) {
+            openEditArticleModal(articleId);
+          }
+        });
+      }
+      
+      return cardElement;
+    }
+    
+    function updateArticleCard(articleId, articleData) {
+      logger.debug('Updating article card:', articleId, articleData);
+      const card = document.querySelector(`[data-article-id="${articleId}"]`);
+      if (!card) {
+        logger.debug('Card not found for article:', articleId);
+        return;
+      }
+      
+      // Update title
+      const titleElement = card.querySelector('h3');
+      if (titleElement) titleElement.textContent = articleData.title;
+      
+      // Update content
+      const contentElement = card.querySelector('.article-content');
+      if (contentElement) contentElement.innerHTML = articleData.content;
+      
+      // Update article type data attribute
+      card.setAttribute('data-article-type', articleData.article_type || '');
+      
+      // Update metadata date to show it was updated
+      const dateElement = card.querySelector('.article-meta .date');
+      if (dateElement) {
+        const updatedDate = new Date().toLocaleDateString('en-NZ', { 
+          day: 'numeric', 
+          month: 'short', 
+          year: 'numeric' 
+        });
+        dateElement.textContent = updatedDate;
+      }
+      
+      logger.debug('Article card updated successfully');
+      
+      // Note: The click handler for edit functionality is already attached to the card
+      // and doesn't need to be re-attached since we're not replacing the card element
+    }
+    
+    function removeArticleCard(articleId) {
+      const card = document.querySelector(`[data-article-id="${articleId}"]`);
+      if (!card) return;
+      
+      // Add fade out animation
+      card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(-20px)';
+      
+      // Remove after animation
+      setTimeout(() => {
+        card.remove();
+        
+        // Check if no articles remain and show message
+        const articlesSection = document.querySelector('.articles-section');
+        if (articlesSection && articlesSection.children.length === 0) {
+          articlesSection.innerHTML = '<p>No articles available.</p>';
+        }
+      }, 300);
+    }
+    
+    // Custom image handler for Cloudinary integration
+    function imageHandler() {
+      logger.debug('imageHandler called, this:', this);
+      const quill = this;
+      const input = document.createElement('input');
+      input.setAttribute('type', 'file');
+      input.setAttribute('accept', 'image/*');
+      input.click();
+
+      input.onchange = () => {
+        const file = input.files[0];
+        logger.debug('File selected:', file);
+        
+        if (file) {
+          const formData = new FormData();
+          formData.append('image', file);
+          
+          // Get selection or default to end
+          const range = quill.getSelection() || { index: quill.getLength() };
+          logger.debug('Insert position:', range);
+          
+          // Show loading overlay
+          const overlay = document.querySelector('.waiting-spinner-overlay');
+          if (overlay) {
+            overlay.classList.add('active');
+          }
+
+          logger.debug('Starting upload to /api/articles/upload-image');
+
+          // Upload to Cloudinary via articles endpoint
+          fetch('/api/articles/upload-image', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'  // Ensure cookies are sent
+          })
+          .then(response => {
+            logger.debug('Upload response status:', response.status);
+            logger.debug('Upload response headers:', response.headers);
+            if (!response.ok) {
+              return response.text().then(text => {
+                logger.debug('Error response body:', text);
+                throw new Error(`HTTP ${response.status}: ${text}`);
+              });
+            }
+            return response.json();
+          })
+          .then(result => {
+            logger.debug('Upload success:', result);
+            // Hide loading overlay
+            const overlay = document.querySelector('.waiting-spinner-overlay');
+            if (overlay) {
+              overlay.classList.remove('active');
+            }
+            // Insert the image
+            if (result.secure_url) {
+              quill.insertEmbed(range.index, 'image', result.secure_url);
+              showNotification('Image uploaded successfully', 'success');
+            } else {
+              throw new Error('No secure_url in response');
+            }
+          })
+          .catch(error => {
+            logger.error('Upload failed:', error);
+            // Hide loading overlay
+            const overlay = document.querySelector('.waiting-spinner-overlay');
+            if (overlay) {
+              overlay.classList.remove('active');
+            }
+            showNotification(`Image upload failed: ${error.message}`, 'error');
+          });
+        }
+      };
+    }
+
+    // Open Add Article modal and focus editor
+    window.openAddArticleModal = function() {
+      openNewModal('add-article-modal');
+      // Focus the title field first, then the editor
+      setTimeout(() => {
+        const titleField = document.getElementById('title');
+        if (titleField) {
+          titleField.focus();
+        }
+      }, 100);
+    };
+    
+    // Archive article function - gets ID from form action
+    window.archiveArticle = function() {
+      const form = document.getElementById('edit-article-modal-form');
+      if (!form || !form.action) {
+        showNotification('No article selected', 'error');
+        return;
+      }
+      
+      // Extract article ID from form action URL
+      const articleId = form.action.split('/').pop();
+      if (!articleId) {
+        showNotification('No article selected', 'error');
+        return;
+      }
+      
+      logger.debug('Archive article called for:', articleId);
+      
+      if (confirm('Are you sure you want to archive this article? This action cannot be undone.')) {
+        logger.debug('User confirmed archive');
+        fetch(`/api/articles/${articleId}/archive`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'same-origin'  // Required for Safari to send cookies
+        })
+        .then(response => {
+          logger.debug('Archive response status:', response.status);
+          return response.json();
+        })
+        .then(data => {
+          logger.debug('Archive response data:', data);
+          if (data.success) {
+            removeArticleCard(articleId);
+            showNotification('Article archived successfully', 'success');
+            // Close the modal using the standard function
+            closeNewModal('edit-article-modal');
+          } else {
+            showNotification('Failed to archive article', 'error');
+          }
+        })
+        .catch(error => {
+          logger.error('Error archiving article:', error);
+          showNotification('Error archiving article', 'error');
+        });
+      }
+    };
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      // Initialize Quill editors
+      if (document.getElementById('content-editor')) {
+        addQuill = new Quill('#content-editor', {
+          theme: 'snow',
+          modules: {
+            toolbar: {
+              container: '#content-editor-toolbar',
+              handlers: {
+                'image': function() {
+                  logger.debug('Image button clicked for add editor');
+                  imageHandler.call(addQuill);
+                }
+              }
+            }
+          }
+        });
+        
+        // Sync with hidden input on content change
+        addQuill.on('text-change', function() {
+          document.getElementById('content').value = addQuill.root.innerHTML;
+        });
+        
+        // Add custom form submission handler for add article
+        const addForm = document.getElementById('add-article-modal-form');
+        if (addForm) {
+          addForm.addEventListener('submit', async function(e) {
+            logger.debug('Add form submitted');
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Sync Quill content
+            if (addQuill) {
+              document.getElementById('content').value = addQuill.root.innerHTML;
+            }
+
+            const formData = new FormData(this);
+            const url = this.action;
+            const method = this.getAttribute('data-method') || 'POST';
+
+            // Convert FormData to JSON
+            const jsonData = {};
+            for (let [key, value] of formData.entries()) {
+              jsonData[key] = value;
+            }
+
+            logger.debug('Submitting add data:', jsonData);
+            
+            try {
+              const response = await fetch(url, {
+                method: method,
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin',  // Required for Safari to send cookies
+                body: JSON.stringify(jsonData)
+              });
+              
+              logger.debug('Add response status:', response.status);
+              logger.debug('Add response ok:', response.ok);
+              
+              if (!response.ok) {
+                const errorText = await response.text();
+                logger.error('Add response error text:', errorText);
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+              }
+              
+              const data = await response.json();
+              logger.debug('Add response data:', data);
+              
+              // Add explicit success check for webkit compatibility
+              const isSuccess = response.ok && (data.success !== false) && data.article_id;
+              logger.debug('Response success check:', isSuccess, 'response.ok:', response.ok, 'data:', data);
+              
+              if (isSuccess) {
+                // Success - add article to DOM
+                const articlesSection = document.querySelector('.articles-section');
+                if (articlesSection) {
+                  // Remove "No articles available" message if it exists
+                  const noArticlesMsg = articlesSection.querySelector('p');
+                  if (noArticlesMsg && noArticlesMsg.textContent.includes('No articles available')) {
+                    noArticlesMsg.remove();
+                  }
+                  
+                  // Create new article object with author info for display
+                  const newArticle = {
+                    ...data,
+                    author: {
+                      username: '#{session.username}',
+                      users_contacts: {
+                        first_name: '#{session.first_name}',
+                        surname: '#{session.surname}'
+                      }
+                    },
+                    created_at: new Date().toISOString()
+                  };
+                  
+                  logger.debug('Creating new article card:', newArticle);
+                  const newCard = createArticleCard(newArticle);
+                  articlesSection.prepend(newCard);
+                }
+                
+                // Close modal using the standard function
+                logger.debug('Closing add modal');
+                closeNewModal('add-article-modal');
+                logger.debug('Add modal closed');
+                
+                // Reset form
+                this.reset();
+                if (addQuill) {
+                  addQuill.setContents([]);
+                }
+                
+                showNotification('Article added successfully', 'success');
+              } else {
+                // Show error if not successful
+                logger.error('Article creation failed:', response, data);
+                if (data && data.message) {
+                  showNotification(data.message, 'error');
+                } else {
+                  showNotification('Failed to create article', 'error');
+                }
+              }
+            } catch (error) {
+              logger.error('Error submitting add form:', error);
+              logger.error('Error details:', error.message, error.stack);
+              showNotification(`Error adding article: ${error.message}`, 'error');
+            }
+          });
+        }
+      }
+      
+      if (document.getElementById('edit-content-editor')) {
+        editQuill = new Quill('#edit-content-editor', {
+          theme: 'snow',
+          modules: {
+            toolbar: {
+              container: '#edit-content-editor-toolbar',
+              handlers: {
+                'image': function() {
+                  logger.debug('Image button clicked for edit editor');
+                  imageHandler.call(editQuill);
+                }
+              }
+            }
+          }
+        });
+        
+        // Sync with hidden input on content change
+        editQuill.on('text-change', function() {
+          document.getElementById('edit-content').value = editQuill.root.innerHTML;
+        });
+      }
+      
+      const searchInput = document.getElementById('article-search');
+      const filterSelect = document.getElementById('article-filter');
+      const resetButton = document.querySelector('.reset-search-btn');
+      
+      function filterArticles() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const filterValue = filterSelect.value;
+        
+        // Get all article cards (including dynamically added ones)
+        const articleCards = document.querySelectorAll('.article-card');
+        
+        articleCards.forEach(card => {
+          const title = card.querySelector('h3').textContent.toLowerCase();
+          const content = card.querySelector('.article-content').textContent.toLowerCase();
+          const articleType = card.getAttribute('data-article-type') || '';
+          
+          const matchesSearch = !searchTerm || 
+            title.includes(searchTerm) || 
+            content.includes(searchTerm) || 
+            articleType.toLowerCase().includes(searchTerm);
+          
+          const matchesFilter = !filterValue || articleType === filterValue;
+          
+          if (matchesSearch && matchesFilter) {
+            card.style.display = 'block';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      }
+      
+      function resetSearch() {
+        searchInput.value = '';
+        filterSelect.selectedIndex = 0;
+        
+        // Get all article cards (including dynamically added ones)
+        const articleCards = document.querySelectorAll('.article-card');
+        articleCards.forEach(card => {
+          card.style.display = 'block';
+        });
+      }
+      
+      if (searchInput) {
+        searchInput.addEventListener('input', filterArticles);
+      }
+      
+      if (filterSelect) {
+        filterSelect.addEventListener('change', filterArticles);
+      }
+      
+      if (resetButton) {
+        resetButton.addEventListener('click', resetSearch);
+      }
+      
+      // Add click handlers for edit functionality
+      if (#{hasEditRole ? 'true' : 'false'}) {
+        const clickableCards = document.querySelectorAll('.article-card.clickable-card');
+        clickableCards.forEach(card => {
+          card.style.cursor = 'pointer';
+          card.addEventListener('click', function(e) {
+            // Don't open edit modal if clicking on interactive elements (links, buttons, etc.)
+            if (e.target.closest('a, button, input, select, textarea')) {
+              return;
+            }
+            const articleId = this.getAttribute('data-article-id');
+            if (articleId) {
+              openEditArticleModal(articleId);
+            }
+          });
+        });
+        
+        // Store the current form submit handler to allow removal
+        let currentEditFormHandler = null;
+        
+        window.openEditArticleModal = function(articleId) {
+          logger.debug('Opening edit modal for article:', articleId);
+          fetch(`/api/articles/${articleId}`, {
+            credentials: 'same-origin'  // Required for Safari to send cookies
+          })
+            .then(response => response.json())
+            .then(article => {
+              logger.debug('Loaded article data:', article);
+              document.getElementById('edit-title').value = article.title || '';
+              document.getElementById('edit-content').value = article.content || '';
+              document.getElementById('edit-article_type').value = article.article_type || '';
+              
+              // Load content into Quill editor
+              if (editQuill) {
+                editQuill.root.innerHTML = article.content || '';
+              }
+              
+              const form = document.getElementById('edit-article-modal-form');
+              form.action = `/api/articles/${articleId}`;
+              form.setAttribute('data-method', 'PUT');
+              
+              // Remove any existing submit handler
+              if (currentEditFormHandler) {
+                form.removeEventListener('submit', currentEditFormHandler);
+              }
+              
+              // Create new submit handler
+              currentEditFormHandler = async function(e) {
+                logger.debug('Edit form submitted');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Sync Quill content to hidden input
+                if (editQuill) {
+                  document.getElementById('edit-content').value = editQuill.root.innerHTML;
+                }
+                
+                // Manually handle form submission with field name mapping
+                const formData = new FormData(form);
+                const url = form.action;
+                const method = form.getAttribute('data-method') || 'PUT';
+                
+                // Convert FormData to JSON and rename edit-content to content
+                const jsonData = {};
+                for (let [key, value] of formData.entries()) {
+                  // Rename edit-content to content for API compatibility
+                  const finalKey = key === 'edit-content' ? 'content' : key;
+                  jsonData[finalKey] = value;
+                }
+                
+                logger.debug('Submitting edit data:', jsonData);
+                
+                try {
+                  const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    credentials: 'same-origin',  // Required for Safari to send cookies
+                    body: JSON.stringify(jsonData)
+                  });
+                  
+                  logger.debug('Edit response status:', response.status);
+                  const data = await response.json();
+                  logger.debug('Edit response data:', data);
+                  
+                  // Add explicit success check for webkit compatibility
+                  const isSuccess = response.ok && (data.success !== false);
+                  logger.debug('Edit response success check:', isSuccess, 'response.ok:', response.ok, 'data:', data);
+                  
+                  if (isSuccess) {
+                    // Success - update article card in DOM
+                    updateArticleCard(articleId, jsonData);
+                    
+                    // Close modal using the standard function
+                    logger.debug('Closing edit modal');
+                    closeNewModal('edit-article-modal');
+                    logger.debug('Edit modal closed');
+                    
+                    showNotification('Article updated successfully', 'success');
+                  } else {
+                    // Show error if not successful
+                    logger.error('Article update failed:', response, data);
+                    if (data && data.message) {
+                      showNotification(data.message, 'error');
+                    } else {
+                      showNotification('Failed to update article', 'error');
+                    }
+                  }
+                } catch (error) {
+                  logger.error('Error submitting edit form:', error);
+                  showNotification('Error updating article', 'error');
+                }
+              };
+              
+              // Add the new submit handler
+              form.addEventListener('submit', currentEditFormHandler);
+              
+              openNewModal('edit-article-modal');
+              
+              // Focus the Quill editor after modal opens
+              setTimeout(() => {
+                if (editQuill) {
+                  editQuill.focus();
+                }
+              }, 100);
+            })
+            .catch(error => {
+              logger.error('Error loading article:', error);
+              showNotification('Error loading article data', 'error');
+            });
+        };
+      }
+      
+      // Add click handler for modal content area to focus Quill editor
+      const editModal = document.getElementById('edit-article-modal');
+      if (editModal) {
+        const modalBody = editModal.querySelector('.new-modal-body');
+        if (modalBody) {
+          modalBody.addEventListener('click', function(e) {
+            // Only focus if not clicking on form controls or the editor itself
+            if (!e.target.closest('input, select, button, .ql-toolbar, .ql-editor')) {
+              if (editQuill) {
+                editQuill.focus();
+              }
+            }
+          });
+        }
+      }
+      
+      // Similar for add article modal
+      const addModal = document.getElementById('add-article-modal');
+      if (addModal) {
+        const modalBody = addModal.querySelector('.new-modal-body');
+        if (modalBody) {
+          modalBody.addEventListener('click', function(e) {
+            // Only focus if not clicking on form controls or the editor itself
+            if (!e.target.closest('input, select, button, .ql-toolbar, .ql-editor')) {
+              if (addQuill) {
+                addQuill.focus();
+              }
+            }
+          });
+        }
+      }
+      
+      // Attach archive button handler
+      setTimeout(() => {
+        const archiveBtn = document.getElementById('archive-article-btn');
+        if (archiveBtn) {
+          archiveBtn.addEventListener('click', archiveArticle);
+        }
+      }, 100);
+    });

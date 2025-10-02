@@ -1,0 +1,325 @@
+class SiteAppProPage {
+  constructor(page) {
+    this.page = page;
+
+    // Page header
+    this.pageTitle = 'h1';
+    this.documentHeader = '.document-header';
+
+    // Navigation sidebar
+    this.sidebar = 'aside.documentation-sidebar';
+    this.navDetails = '.nav-details';
+    this.navSummary = '.nav-details summary';
+    this.navLinks = '.nav-details ul li a';
+    this.backToTopSidebar = '#back-to-top-btn';
+
+    // Navigation link selectors
+    this.inductionLink = 'a[href="#induction"]';
+    this.whenToCompleteLink = 'a[href="#when-to-complete"]';
+    this.howToCompleteLink = 'a[href="#how-to-complete"]';
+    this.examplesLink = 'a[href="#examples"]';
+
+    // Content sections
+    this.inductionSection = 'section#induction';
+    this.whenToCompleteSection = 'section#when-to-complete';
+    this.howToCompleteSection = 'section#how-to-complete';
+    this.examplesSection = 'section#examples';
+
+    // Induction section elements
+    this.videoLink = '.video-link a';
+    this.loomVideoLink = 'a[href*="loom.com"]';
+
+    // Guide items in when-to-complete section
+    this.guideItems = '.guide-item';
+    this.nearMissGuide = '.guide-item:has(h3:text("Near Miss Forms"))';
+    this.incidentGuide = '.guide-item:has(h3:text("Incident or Accident Reports"))';
+    this.hazardGuide = '.guide-item:has(h3:text("Hazard Reporting"))';
+    this.taskAnalysisGuide = '.guide-item:has(h3:text("Task Analysis"))';
+    this.toolboxGuide = '.guide-item:has(h3:text("Toolbox Talks"))';
+
+    // Step guide in how-to-complete section
+    this.stepGuide = '.step-guide';
+    this.steps = '.step';
+    this.stepImages = '.document-image img';
+
+    // Completion notes
+    this.completionNotes = '.completion-notes';
+    this.finalStepsList = '.completion-notes ul';
+
+    // Example forms section
+    this.exampleForms = '.example-forms';
+    this.formExamples = '.form-example';
+
+    // Images
+    this.allImages = 'img';
+    this.cloudinaryImages = 'img[src*="cloudinary.com"]';
+
+    // Mobile back-to-top button
+    this.backToTopMobile = '#back-to-top-mobile';
+
+    // AI Panel (inherited from layout)
+    this.aiToggle = '#ai-toggle';
+    this.aiPanel = '#ai-panel';
+
+    // Navigation panel (when logged in)
+    this.navPanelContainer = '.nav-panel-container';
+  }
+
+  async goto() {
+    await this.page.goto('/docs/site-app-pro');
+    await this.page.waitForSelector(this.documentHeader, { state: 'visible' });
+  }
+
+  async isAuthenticated() {
+    // Check if navigation panel is visible (indicates logged in state)
+    try {
+      await this.page.waitForSelector(this.navPanelContainer, { state: 'visible', timeout: 1000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async getPageTitle() {
+    return await this.page.textContent(this.pageTitle);
+  }
+
+  async clickNavigationLink(section) {
+    const linkSelectors = {
+      induction: this.inductionLink,
+      'when-to-complete': this.whenToCompleteLink,
+      'how-to-complete': this.howToCompleteLink,
+      examples: this.examplesLink
+    };
+
+    if (linkSelectors[section]) {
+      await this.page.click(linkSelectors[section]);
+    }
+  }
+
+  async isSectionVisible(section) {
+    const sectionSelectors = {
+      induction: this.inductionSection,
+      'when-to-complete': this.whenToCompleteSection,
+      'how-to-complete': this.howToCompleteSection,
+      examples: this.examplesSection
+    };
+
+    if (sectionSelectors[section]) {
+      return await this.page.isVisible(sectionSelectors[section]);
+    }
+    return false;
+  }
+
+  async getVideoLinkHref() {
+    return await this.page.getAttribute(this.loomVideoLink, 'href');
+  }
+
+  async getVideoLinkTarget() {
+    return await this.page.getAttribute(this.loomVideoLink, 'target');
+  }
+
+  async getGuideItemsCount() {
+    return await this.page.locator(this.guideItems).count();
+  }
+
+  async getStepsCount() {
+    return await this.page.locator(this.steps).count();
+  }
+
+  async getImagesCount() {
+    return await this.page.locator(this.allImages).count();
+  }
+
+  async getCloudinaryImagesCount() {
+    return await this.page.locator(this.cloudinaryImages).count();
+  }
+
+  async areAllImagesLoaded() {
+    const images = await this.page.locator(this.allImages).all();
+    const failedImages = [];
+
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      try {
+        // Skip hidden images (mobile logo, hidden examples, etc.)
+        const isVisible = await img.isVisible();
+        if (!isVisible) continue;
+
+        const imageData = await img.evaluate(el => {
+          return {
+            complete: el.complete,
+            naturalHeight: el.naturalHeight,
+            naturalWidth: el.naturalWidth,
+            src: el.src,
+            loading: el.loading
+          };
+        });
+
+        const isLoaded = imageData.complete &&
+                        imageData.naturalHeight !== 0 &&
+                        imageData.naturalWidth !== 0 &&
+                        !imageData.src.includes('data:') &&
+                        imageData.src !== '';
+
+        if (!isLoaded) {
+          failedImages.push({ index: i, ...imageData });
+        }
+      } catch (error) {
+        // Skip images that can't be accessed
+        continue;
+      }
+    }
+
+    if (failedImages.length > 0) {
+      console.log('Failed images:', failedImages);
+      return false;
+    }
+
+    return true;
+  }
+
+  async scrollToSection(section) {
+    const sectionSelectors = {
+      induction: this.inductionSection,
+      'when-to-complete': this.whenToCompleteSection,
+      'how-to-complete': this.howToCompleteSection,
+      examples: this.examplesSection
+    };
+
+    if (sectionSelectors[section]) {
+      await this.page.locator(sectionSelectors[section]).scrollIntoViewIfNeeded();
+    }
+  }
+
+  async clickBackToTopSidebar() {
+    await this.page.click(this.backToTopSidebar);
+  }
+
+  async clickBackToTopMobile() {
+    await this.page.click(this.backToTopMobile);
+  }
+
+  async isBackToTopMobileVisible() {
+    return await this.page.isVisible(this.backToTopMobile);
+  }
+
+  async getScrollPosition() {
+    return await this.page.evaluate(() => window.pageYOffset || document.documentElement.scrollTop);
+  }
+
+  async scrollDown(pixels) {
+    await this.page.evaluate((px) => window.scrollBy(0, px), pixels);
+  }
+
+  async scrollToTop() {
+    await this.page.evaluate(() => window.scrollTo(0, 0));
+  }
+
+  async triggerLazyImageLoading() {
+    // Scroll through the entire page to trigger lazy loading
+    const pageHeight = await this.page.evaluate(() => document.body.scrollHeight);
+    const viewportHeight = await this.page.evaluate(() => window.innerHeight);
+
+    // Scroll in chunks to trigger lazy loading
+    for (let y = 0; y < pageHeight; y += viewportHeight / 2) {
+      await this.page.evaluate((scrollY) => window.scrollTo(0, scrollY), y);
+      await this.page.waitForTimeout(200); // Wait for images to start loading
+    }
+
+    // Scroll back to top
+    await this.scrollToTop();
+    await this.page.waitForTimeout(500);
+  }
+
+  async waitForSmoothScroll() {
+    // Wait for smooth scroll animation to complete
+    await this.page.waitForTimeout(1000);
+  }
+
+  async getFormExamplesCount() {
+    return await this.page.locator(this.formExamples).count();
+  }
+
+  async isNavigationSidebarVisible() {
+    return await this.page.isVisible(this.sidebar);
+  }
+
+  async getAllNavigationLinks() {
+    return await this.page.locator(this.navLinks).allTextContents();
+  }
+
+  async checkImageAltText() {
+    const images = await this.page.locator(this.allImages).all();
+    const results = [];
+    for (const img of images) {
+      const alt = await img.getAttribute('alt');
+      const src = await img.getAttribute('src');
+      results.push({ src, hasAlt: !!alt });
+    }
+    return results;
+  }
+
+  async checkImageLazyLoading() {
+    const images = await this.page.locator(this.allImages).all();
+    const results = [];
+    for (const img of images) {
+      const loading = await img.getAttribute('loading');
+      const src = await img.getAttribute('src');
+      results.push({ src, isLazy: loading === 'lazy' });
+    }
+    return results;
+  }
+
+  async getViewportSize() {
+    return await this.page.viewportSize();
+  }
+
+  async setViewportSize(width, height) {
+    await this.page.setViewportSize({ width, height });
+  }
+
+  async isElementInViewport(selector) {
+    const element = this.page.locator(selector).first();
+    // Use boundingBox to check if element is in viewport
+    const elementBox = await element.boundingBox();
+    const viewportSize = this.page.viewportSize();
+
+    if (!elementBox || !viewportSize) {
+      return false;
+    }
+
+    return elementBox.x < viewportSize.width &&
+           elementBox.x + elementBox.width > 0 &&
+           elementBox.y < viewportSize.height &&
+           elementBox.y + elementBox.height > 0;
+  }
+
+  async getSectionHeadings() {
+    const headings = await this.page.locator('h2, h3').allTextContents();
+    return headings;
+  }
+
+  async navigateWithKeyboard() {
+    // Tab through interactive elements
+    const tabCount = 20; // Reasonable number of tabs to test navigation
+    const focusedElements = [];
+
+    for (let i = 0; i < tabCount; i++) {
+      await this.page.keyboard.press('Tab');
+      const focused = await this.page.evaluate(() => {
+        const el = document.activeElement;
+        return {
+          tagName: el.tagName,
+          text: el.textContent?.trim().substring(0, 50),
+          href: el.href || null
+        };
+      });
+      focusedElements.push(focused);
+    }
+
+    return focusedElements;
+  }
+}
+
+module.exports = SiteAppProPage;

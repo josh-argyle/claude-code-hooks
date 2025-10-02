@@ -1,0 +1,226 @@
+const { processMinimumFireSafetySystems } = require('../../../api/processors/fire-safety-systems/minimum-fire-safety-systems');
+const { processFireSafetySystems } = require('../../../api/processors/fire-safety-systems/orchestrator');
+const ProjectModel = require('../../../api/models/project-model');
+
+describe('Fire Safety Systems Processor', () => {
+  describe('processMinimumFireSafetySystems', () => {
+    test('should process system with type and definition', () => {
+      const parsed = {
+        type: 2,
+        notes: []
+      };
+
+      const result = processMinimumFireSafetySystems(parsed);
+
+      expect(result.processed).toBe(true);
+      expect(result.type).toBe(2);
+      expect(result.definition).toBeTruthy();
+      expect(result.notes).toEqual([]);
+      expect(result.noteTexts).toEqual([]);
+    });
+
+    test('should process system with notes', () => {
+      const parsed = {
+        type: 18,
+        notes: ['2']
+      };
+
+      const result = processMinimumFireSafetySystems(parsed);
+
+      expect(result.processed).toBe(true);
+      expect(result.type).toBe(18);
+      expect(result.definition).toBeTruthy();
+      expect(result.notes).toEqual(['2']);
+      expect(result.noteTexts).toHaveLength(1);
+      expect(result.noteTexts[0].note).toBe('2');
+      expect(result.noteTexts[0].text).toBeTruthy();
+    });
+
+    test('should handle invalid parsed system', () => {
+      const result = processMinimumFireSafetySystems(null);
+
+      expect(result.error).toBe('Invalid parsed system code');
+      expect(result.type).toBeNull();
+      expect(result.definition).toBeNull();
+    });
+
+    test('should handle system with invalid notes gracefully', () => {
+      const parsed = {
+        type: 2,
+        notes: ['invalid', '2']
+      };
+
+      const result = processMinimumFireSafetySystems(parsed);
+
+      expect(result.processed).toBe(true);
+      expect(result.type).toBe(2);
+      expect(result.noteTexts.length).toBeLessThanOrEqual(2);
+    });
+  });
+
+
+  describe('processFireSafetySystems', () => {
+    let projectModel;
+
+    beforeEach(() => {
+      projectModel = new ProjectModel();
+    });
+
+    test('should process project with single firecell', () => {
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      // Simulate occupant load processor setting the value
+      projectModel.firecells[0].occupantLoad = 100;
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      expect(projectModel.firecells[0].fireSafetySystems).toBeDefined();
+      expect(Array.isArray(projectModel.firecells[0].fireSafetySystems)).toBe(true);
+      expect(projectModel.firecells[0].processedFireSafetySystems).toBeDefined();
+      expect(Array.isArray(projectModel.firecells[0].processedFireSafetySystems)).toBe(true);
+    });
+
+    test('should process project with multiple firecells', () => {
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        wbActivityType: 'storage',
+        occupantType: 'Bulk storage including racks and shelves',
+        // occupantLoad removed - will be calculated as 500/100 = 5
+        escapeHeight: 6,
+        isSprinklered: true,
+        floorArea: 500,
+        floor: 'G'
+      });
+
+      // Simulate occupant load processor setting the values
+      projectModel.firecells[0].occupantLoad = 100;
+      projectModel.firecells[1].occupantLoad = 5;
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      expect(projectModel.firecells).toHaveLength(2);
+      expect(projectModel.firecells[0].fireSafetySystems).toBeDefined();
+      expect(projectModel.firecells[1].fireSafetySystems).toBeDefined();
+      expect(projectModel.firecells[0].processedFireSafetySystems).toBeDefined();
+      expect(projectModel.firecells[1].processedFireSafetySystems).toBeDefined();
+    });
+
+    test('should handle VP risk group with vehicle stacker', () => {
+      projectModel.addFirecell({
+        riskGroup: 'VP',
+        occupantType: 'Parking buildings, garages',
+        // occupantLoad removed - will be calculated as 2000/50 = 40
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 2000,
+        hasVehicleStacker: true,
+        floor: 'G'
+      });
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      expect(projectModel.firecells[0].fireSafetySystems).toBeDefined();
+      expect(projectModel.firecells[0].processedFireSafetySystems).toBeDefined();
+    });
+
+    test('should handle SM risk group with occupant type', () => {
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        sleepingOccupantType: 'permanent', // NEW: Required for SM/SI
+        occupantLoad: 50,
+        escapeHeight: 12,
+        isSprinklered: false,
+        floorArea: 800,
+        floor: 'G',
+        numberOfEscapeRoutes: 2, // NEW: Required
+        maxEscapeRouteBeds: 25 // NEW: Required for SM/SI
+      });
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      expect(projectModel.firecells[0].fireSafetySystems).toBeDefined();
+      expect(Array.isArray(projectModel.firecells[0].fireSafetySystems)).toBe(true);
+      expect(projectModel.firecells[0].processedFireSafetySystems).toBeDefined();
+    });
+
+    test('should process systems with notes', () => {
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 5, // Low escape height to trigger note 2
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      // Simulate occupant load processor setting the value
+      projectModel.firecells[0].occupantLoad = 100;
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      const processedSystems = projectModel.firecells[0].processedFireSafetySystems;
+      expect(processedSystems).toBeDefined();
+
+      // Check that systems are processed with definitions and notes
+      processedSystems.forEach(system => {
+        expect(system.code).toBeDefined();
+        expect(system.type).toBeDefined();
+        expect(system.definition).toBeDefined();
+        expect(system.processed).toBe(true);
+      });
+    });
+
+    test('should handle firecells without systems', () => {
+      // Mock a case where getFireSafetySystems returns null
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      // Simulate occupant load processor setting the value
+      projectModel.firecells[0].occupantLoad = 100;
+
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      // Just verify the function runs without errors, even if systems exist
+      expect(projectModel.firecells).toHaveLength(1);
+    });
+
+    test('should process empty project model', () => {
+      const result = processFireSafetySystems(projectModel);
+
+      expect(result).toBe(projectModel);
+      expect(projectModel.firecells).toHaveLength(0);
+    });
+  });
+});

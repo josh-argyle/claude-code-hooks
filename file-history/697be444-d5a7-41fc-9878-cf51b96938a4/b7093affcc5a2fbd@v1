@@ -1,0 +1,333 @@
+const { processFirecells } = require('../../../api/processors/firecells/orchestrator');
+const {
+  checkFirecellCompliance,
+  getEffectiveFloorAreaLimit,
+  needsBoundaryDistanceQuestion
+} = require('../../../api/processors/firecells/calculator');
+const ProjectModel = require('../../../api/models/project-model');
+
+describe('Firecells Processor', () => {
+  describe('checkFirecellCompliance', () => {
+    describe('SM Risk Group', () => {
+      test('unsprinklered firecell under 500m² should be compliant', () => {
+        const result = checkFirecellCompliance('SM', false, 400, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell at 500m² should be compliant', () => {
+        const result = checkFirecellCompliance('SM', false, 500, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell over 500m² should not be compliant', () => {
+        const result = checkFirecellCompliance('SM', false, 600, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('exceeds_limit');
+      });
+
+      test('sprinklered firecell should always be compliant', () => {
+        const result = checkFirecellCompliance('SM', true, 10000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+
+    describe('SI Risk Group', () => {
+      test('unsprinklered firecell should not be compliant', () => {
+        const result = checkFirecellCompliance('SI', false, 100, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('must_be_sprinklered');
+      });
+
+      test('sprinklered firecell should be compliant', () => {
+        const result = checkFirecellCompliance('SI', true, 400, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+
+    describe('CA Risk Group', () => {
+      test('unsprinklered firecell under 5000m² should be compliant', () => {
+        const result = checkFirecellCompliance('CA', false, 4000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell at 5000m² should be compliant', () => {
+        const result = checkFirecellCompliance('CA', false, 5000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell over 5000m² should not be compliant', () => {
+        const result = checkFirecellCompliance('CA', false, 6000, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('exceeds_limit');
+      });
+
+      test('sprinklered firecell should always be compliant', () => {
+        const result = checkFirecellCompliance('CA', true, 50000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+
+    describe('WS Risk Group', () => {
+      test('unsprinklered firecell should not be compliant', () => {
+        const result = checkFirecellCompliance('WS', false, 1000, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('must_be_sprinklered');
+      });
+
+      test('sprinklered firecell should be compliant', () => {
+        const result = checkFirecellCompliance('WS', true, 50000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+
+    describe('WB Risk Group', () => {
+      test('unsprinklered firecell under 5000m² should be compliant', () => {
+        const result = checkFirecellCompliance('WB', false, 4000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell over 5000m² with 15m+ boundary distance should be compliant', () => {
+        const result = checkFirecellCompliance('WB', false, 6000, true);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('unlimited_with_boundary_distance');
+      });
+
+      test('unsprinklered firecell over 5000m² without sufficient boundary distance should not be compliant', () => {
+        const result = checkFirecellCompliance('WB', false, 6000, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+      });
+
+      test('sprinklered firecell should always be compliant', () => {
+        const result = checkFirecellCompliance('WB', true, 50000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+
+    describe('VP Risk Group', () => {
+      test('unsprinklered firecell under 5000m² should be compliant', () => {
+        const result = checkFirecellCompliance('VP', false, 4000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('within_limit');
+      });
+
+      test('unsprinklered firecell over 5000m² with 15m+ boundary distance should be compliant', () => {
+        const result = checkFirecellCompliance('VP', false, 6000, true);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('unlimited_with_boundary_distance');
+      });
+
+      test('unsprinklered firecell over 5000m² without sufficient boundary distance should not be compliant', () => {
+        const result = checkFirecellCompliance('VP', false, 6000, false);
+        expect(result.isCompliant).toBe(false);
+        expect(result.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+      });
+
+      test('sprinklered firecell should always be compliant', () => {
+        const result = checkFirecellCompliance('VP', true, 50000, false);
+        expect(result.isCompliant).toBe(true);
+        expect(result.reason).toBe('sprinklered');
+      });
+    });
+  });
+
+  describe('getEffectiveFloorAreaLimit', () => {
+    test('should return base limit for most cases', () => {
+      const result = getEffectiveFloorAreaLimit('SM', false, 400, false);
+      expect(result).toBe('500');
+    });
+
+    test('should return Unlimited^2 for WB/VP over 5000m² with 15m+ boundary', () => {
+      const wbResult = getEffectiveFloorAreaLimit('WB', false, 6000, true);
+      expect(wbResult).toBe('Unlimited^2');
+
+      const vpResult = getEffectiveFloorAreaLimit('VP', false, 6000, true);
+      expect(vpResult).toBe('Unlimited^2');
+    });
+
+    test('should return base limit for WB/VP over 5000m² without boundary distance', () => {
+      const result = getEffectiveFloorAreaLimit('WB', false, 6000, false);
+      expect(result).toBe('5000^2');
+    });
+
+    test('should return sprinklered limit for sprinklered buildings', () => {
+      const result = getEffectiveFloorAreaLimit('CA', true, 10000, false);
+      expect(result).toBe('Unlimited^1');
+    });
+  });
+
+  describe('needsBoundaryDistanceQuestion', () => {
+    test('should return true for WB/VP unsprinklered over 5000m²', () => {
+      expect(needsBoundaryDistanceQuestion('WB', false, 5000)).toBe(true);
+      expect(needsBoundaryDistanceQuestion('VP', false, 6000)).toBe(true);
+    });
+
+    test('should return false for WB/VP under 5000m²', () => {
+      expect(needsBoundaryDistanceQuestion('WB', false, 4000)).toBe(false);
+      expect(needsBoundaryDistanceQuestion('VP', false, 3000)).toBe(false);
+    });
+
+    test('should return false for sprinklered WB/VP', () => {
+      expect(needsBoundaryDistanceQuestion('WB', true, 6000)).toBe(false);
+      expect(needsBoundaryDistanceQuestion('VP', true, 7000)).toBe(false);
+    });
+
+    test('should return false for other risk groups', () => {
+      expect(needsBoundaryDistanceQuestion('SM', false, 6000)).toBe(false);
+      expect(needsBoundaryDistanceQuestion('CA', false, 6000)).toBe(false);
+      expect(needsBoundaryDistanceQuestion('SI', false, 6000)).toBe(false);
+      expect(needsBoundaryDistanceQuestion('WS', false, 6000)).toBe(false);
+    });
+  });
+
+  describe('processFirecells (Orchestrator)', () => {
+    let projectModel;
+
+    beforeEach(() => {
+      projectModel = new ProjectModel();
+      // Set required project-level properties
+      projectModel.distanceFromBoundary15mOrMore = false;
+    });
+
+    test('should add firecell compliance data to each firecell', () => {
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 4000/10 = 400
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 4000,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].firecellCompliance).toBeDefined();
+      expect(result.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(result.firecells[0].firecellCompliance.reason).toBe('within_limit');
+      expect(result.firecells[0].firecellCompliance.effectiveLimit).toBe('5000');
+    });
+
+    test('should handle multiple firecells', () => {
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        occupantType: 'Office spaces',
+        occupantLoad: 40, // Keep for SM (bed spaces)
+        escapeHeight: 3,
+        isSprinklered: false,
+        floorArea: 400,
+        floor: 'G'
+      });
+
+      projectModel.addFirecell({
+        riskGroup: 'CA',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 10000/10 = 1000
+        escapeHeight: 5,
+        isSprinklered: true,
+        floorArea: 10000,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(result.firecells[1].firecellCompliance.isCompliant).toBe(true);
+      expect(result.firecells[1].firecellCompliance.reason).toBe('sprinklered');
+    });
+
+    test('should handle non-compliant firecells', () => {
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        occupantType: 'Office spaces',
+        occupantLoad: 60, // Keep for SM (bed spaces)
+        escapeHeight: 4,
+        isSprinklered: false,
+        floorArea: 600,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].firecellCompliance.isCompliant).toBe(false);
+      expect(result.firecells[0].firecellCompliance.reason).toBe('exceeds_limit');
+    });
+
+    test('should use project-level boundary distance setting', () => {
+      projectModel.distanceFromBoundary15mOrMore = true;
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 6000/10 = 600
+        escapeHeight: 8,
+        isSprinklered: false,
+        floorArea: 6000,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(result.firecells[0].firecellCompliance.reason).toBe('unlimited_with_boundary_distance');
+      expect(result.firecells[0].firecellCompliance.effectiveLimit).toBe('Unlimited^2');
+    });
+
+    test('should add boundary distance question flag when needed', () => {
+      projectModel.addFirecell({
+        riskGroup: 'VP',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 5500/10 = 550
+        escapeHeight: 3,
+        isSprinklered: false,
+        floorArea: 5500,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].firecellCompliance.needsBoundaryQuestion).toBe(true);
+    });
+
+    test('should return same project model instance', () => {
+      const result = processFirecells(projectModel);
+      expect(result).toBe(projectModel);
+    });
+
+    test('should handle empty project model', () => {
+      const result = processFirecells(projectModel);
+      expect(result.getFirecellCount()).toBe(0);
+    });
+
+    test('should preserve original firecell properties', () => {
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        // occupantLoad removed - will be calculated as 1000/10 = 100
+        escapeHeight: 3,
+        isSprinklered: false,
+        floorArea: 1000,
+        floor: 'G'
+      });
+
+      const result = processFirecells(projectModel);
+
+      expect(result.firecells[0].riskGroup).toBe('WB');
+      expect(result.firecells[0].occupantType).toBe('Office spaces');
+      // occupantLoad will be calculated by the processor
+      expect(result.firecells[0].escapeHeight).toBe(3);
+      expect(result.firecells[0].isSprinklered).toBe(false);
+      expect(result.firecells[0].floorArea).toBe(1000);
+    });
+  });
+});

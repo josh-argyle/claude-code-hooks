@@ -1,0 +1,99 @@
+const articlesService = require('../services/articlesService');
+const cloudinaryService = require('../services/cloudinaryService');
+const logger = require('../utils/logger');
+
+const articlesController = {
+  async getAllArticles(req, res) {
+    try {
+      const articles = await articlesService.getAllArticles();
+      res.json(articles);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to retrieve articles', code: 'OPERATION_FAILED' });
+    }
+  },
+
+  async getArticleById(req, res) {
+    try {
+      const article = await articlesService.getArticleById(req.params.id);
+      if (!article) {
+        return res.status(404).json({ error: 'Article not found', code: 'NOT_FOUND' });
+      }
+      res.json(article);
+    } catch (error) {
+      res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+    }
+  },
+
+  async createArticle(req, res) {
+    try {
+      const userId = req.session.userId;
+      const article = await articlesService.createArticle(req.body, userId);
+      res.status(201).json(article);
+    } catch (error) {
+      logger.error('Create article error:', { error: error.message });
+      if (error.message.includes('required')) {
+        res.status(400).json({ error: error.message, code: 'BAD_REQUEST' });
+      } else {
+        res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+      }
+    }
+  },
+
+  async updateArticle(req, res) {
+    try {
+      const article = await articlesService.updateArticle(req.params.id, req.body);
+      if (!article) {
+        return res.status(404).json({ error: 'Article not found', code: 'NOT_FOUND' });
+      }
+      res.json(article);
+    } catch (error) {
+      logger.error('Update article error:', { error: error.message });
+      if (error.message.includes('required')) {
+        res.status(400).json({ error: error.message, code: 'BAD_REQUEST' });
+      } else {
+        res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+      }
+    }
+  },
+
+  // Image upload for articles (used by Quill editor)
+  async uploadArticleImage(req, res) {
+    try {
+      // Global multer provides req.files (array), we expect one file with fieldname 'image'
+      const imageFile = req.files?.find(file => file.fieldname === 'image');
+
+      if (!imageFile) {
+        return res.status(400).json({ error: 'No image file provided', code: 'BAD_REQUEST' });
+      }
+
+      // Upload to Cloudinary
+      const cloudinaryResult = await cloudinaryService.uploadImage(imageFile, {
+        folder: 'article-images',
+        resource_type: 'image'
+      });
+
+      res.json({
+        secure_url: cloudinaryResult.secure_url,
+        public_id: cloudinaryResult.public_id
+      });
+    } catch (error) {
+      logger.error('Article image upload error:', { error: error.message });
+      res.status(500).json({ error: 'Failed to upload image', code: 'OPERATION_FAILED' });
+    }
+  },
+
+  async archiveArticle(req, res) {
+    try {
+      const article = await articlesService.archiveArticle(req.params.id);
+      if (!article) {
+        return res.status(404).json({ error: 'Article not found', code: 'NOT_FOUND' });
+      }
+      res.json({ success: true, message: 'Article archived successfully' });
+    } catch (error) {
+      logger.error('Archive article error:', { error: error.message });
+      res.status(500).json({ error: 'Failed to archive article', code: 'OPERATION_FAILED' });
+    }
+  }
+};
+
+module.exports = articlesController;

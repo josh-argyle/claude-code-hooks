@@ -1,0 +1,157 @@
+/**
+ * Paragraph Builder Utility
+ * Centralized utility for creating all paragraph types used across processors
+ * Ensures consistent paragraph formatting throughout the application
+ */
+
+const { getCurrentTimestamp } = require('./date-utils');
+
+/**
+ * Create a standard paragraph
+ * @param {string} title - The paragraph title
+ * @param {string} type - The paragraph type (text, list, table, etc.)
+ * @param {string|Array|Object} content - The paragraph content
+ * @returns {Object} Formatted paragraph object
+ */
+function createParagraph(title, type, content) {
+  if (!title || !type || content === undefined) {
+    throw new Error('Title, type, and content are required for paragraph creation');
+  }
+
+  return {
+    title,
+    type,
+    content,
+    timestamp: getCurrentTimestamp(),
+  };
+}
+
+/**
+ * Create a danger paragraph (critical warnings)
+ * @param {string} title - The paragraph title
+ * @param {string|Array} content - The paragraph content
+ * @returns {Object} Formatted danger paragraph object
+ */
+function createDangerParagraph(title, content) {
+  return createParagraph(title, 'danger', content);
+}
+
+/**
+ * Create a warning paragraph (important notices)
+ * @param {string} title - The paragraph title
+ * @param {string|Array} content - The paragraph content
+ * @returns {Object} Formatted warning paragraph object
+ */
+function createWarningParagraph(title, content) {
+  return createParagraph(title, 'warning', content);
+}
+
+/**
+ * Create an info paragraph (informational content)
+ * @param {string} title - The paragraph title
+ * @param {string|Array} content - The paragraph content
+ * @returns {Object} Formatted info paragraph object
+ */
+function createInfoParagraph(title, content) {
+  return createParagraph(title, 'info', content);
+}
+
+/**
+ * Create a table paragraph
+ * @param {string} title - The paragraph title
+ * @param {Array} headers - Array of column headers
+ * @param {Array} rows - Array of row data (each row is an array)
+ * @returns {Object} Formatted table paragraph object
+ */
+function createTableParagraph(title, headers, rows) {
+  if (!Array.isArray(headers) || !Array.isArray(rows)) {
+    throw new Error('Headers and rows must be arrays for table paragraphs');
+  }
+
+  const tableContent = {
+    headers,
+    rows,
+  };
+
+  return createParagraph(title, 'table', tableContent);
+}
+
+/**
+ * Create a list paragraph
+ * @param {string} title - The paragraph title
+ * @param {Array} items - Array of list items
+ * @param {string} [listType='unordered'] - Type of list (ordered, unordered)
+ * @returns {Object} Formatted list paragraph object
+ */
+function createListParagraph(title, items, listType = 'unordered') {
+  if (!Array.isArray(items)) {
+    throw new Error('Items must be an array for list paragraphs');
+  }
+
+  const listContent = {
+    items,
+    listType,
+  };
+
+  return createParagraph(title, 'list', listContent);
+}
+
+/**
+ * Create a code paragraph (for displaying code snippets)
+ * @param {string} title - The paragraph title
+ * @param {string} code - The code content
+ * @param {string} [language='text'] - Programming language for syntax highlighting
+ * @returns {Object} Formatted code paragraph object
+ */
+function createCodeParagraph(title, code, language = 'text') {
+  const codeContent = {
+    code,
+    language,
+  };
+
+  return createParagraph(title, 'code', codeContent);
+}
+
+/**
+ * Create a compliance paragraph (for compliance-specific content)
+ * @param {string} title - The paragraph title
+ * @param {string} content - The compliance content
+ * @param {string} status - Compliance status (compliant, non-compliant, conditional)
+ * @returns {Object} Formatted compliance paragraph object
+ */
+function createComplianceParagraph(title, content, status) {
+  const complianceContent = {
+    content,
+    status,
+  };
+
+  return createParagraph(title, 'compliance', complianceContent);
+}
+
+/**
+ * Create a requirements paragraph (for requirements document content)
+ * @param {string} title - The paragraph title
+ * @param {string} content - The requirements content
+ * @param {string} [priority='standard'] - Priority level (high, standard, low)
+ * @returns {Object} Formatted requirements paragraph object
+ */
+function createRequirementsParagraph(title, content, priority = 'standard') {
+  const requirementsContent = {
+    content,
+    priority,
+  };
+
+  return createParagraph(title, 'requirements', requirementsContent);
+}
+
+module.exports = {
+  createParagraph,
+  createDangerParagraph,
+  createWarningParagraph,
+  createInfoParagraph,
+  createTableParagraph,
+  createListParagraph,
+  createCodeParagraph,
+  createComplianceParagraph,
+  createRequirementsParagraph,
+};

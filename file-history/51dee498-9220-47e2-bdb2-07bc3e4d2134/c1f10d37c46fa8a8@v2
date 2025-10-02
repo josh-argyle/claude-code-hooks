@@ -1,0 +1,48 @@
+/**
+ * CONSOLIDATED Unit Test Setup
+ *
+ * Unit tests are isolated and use mocks only.
+ * NO database or external service access.
+ */
+require('dotenv').config({ path: '.env.test' });
+
+// Environment safety
+if (process.env.NODE_ENV !== 'test') {
+  throw new Error('Unit tests can only run in test environment');
+}
+
+// Set test environment variables
+process.env.NODE_ENV = 'test';
+process.env.SESSION_SECRET = 'test-session-secret-unit';
+
+// Mock external service API keys and configuration
+process.env.SENDGRID_API_KEY = 'test-sendgrid-key';
+process.env.SENDGRID_FROM_EMAIL = 'test@example.com';
+process.env.ALERT_EMAIL_RECIPIENTS = 'admin@example.com';
+process.env.CLOUDINARY_CLOUD_NAME = 'test-cloud';
+process.env.CLOUDINARY_API_KEY = 'test-cloudinary-key';
+process.env.CLOUDINARY_API_SECRET = 'test-cloudinary-secret';
+process.env.PDFENDPOINT_API_KEY = 'test-pdf-key';
+process.env.OPENROUTER_API_KEY = 'test-openrouter-key';
+process.env.LLM_MODEL = 'openai/gpt-4o-mini';
+process.env.SITE_URL = 'http://localhost:3000';
+process.env.SITE_NAME = 'Faster Project Test';
+process.env.APP_BASE_URL = 'http://localhost:3001';
+
+// Suppress console output in unit tests for cleaner test output
+global.console = {
+  ...console,
+  log: jest.fn(),
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn()
+};
+
+// Mock any external services that would be imported
+// Currently no mocks needed, but this is where they would go
+
+// Unit test timeout (shorter than integration/e2e)
+jest.setTimeout(10000);
+
+console.log('✅ Unit test setup configured - isolated test environment');

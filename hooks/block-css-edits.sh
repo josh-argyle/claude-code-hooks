@@ -6,8 +6,7 @@
 # Read JSON input from stdin
 INPUT=$(cat)
 
-# Check if this is an editing tool and if file path contains .css
-# Since JSON parsing fails due to unescaped newlines, check the raw input directly
+# Check if this is an editing tool
 IS_EDITING_TOOL=false
 if echo "$INPUT" | grep -q '"tool_name":"Edit"' || \
    echo "$INPUT" | grep -q '"tool_name":"Write"' || \
@@ -15,17 +14,22 @@ if echo "$INPUT" | grep -q '"tool_name":"Edit"' || \
     IS_EDITING_TOOL=true
 fi
 
-# Check if this is a file editing tool and if the file path ends with .css
-if [ "$IS_EDITING_TOOL" = true ] && echo "$INPUT" | grep -q '\.css'; then
-    # Return JSON to block and send message to Claude
-    cat << 'EOF'
+# Extract file path and check if it's actually a CSS file
+if [ "$IS_EDITING_TOOL" = true ]; then
+    FILE_PATH=$(echo "$INPUT" | grep -o '"file_path":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    # Check if file path ends with CSS extension
+    if echo "$FILE_PATH" | grep -qE '\.(css)$'; then
+        # Return JSON to block and send message to Claude
+        cat << 'EOF'
 {
   "decision": "block",
   "reason": "🎨 CSS file edits blocked! Please reuse existing CSS classes and variables. Only ask the human to create new CSS if ABSOLUTELY necessary.",
   "systemMessage": "CSS modification blocked - reuse existing styles or request human approval"
 }
 EOF
-    exit 0
+        exit 0
+    fi
 fi
 
 # Allow all other commands - return JSON to allow

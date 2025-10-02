@@ -1,0 +1,147 @@
+/**
+ * Building Scope Validator for C/AS2 Compliance
+ *
+ * Validates whether a building is within scope for C/AS2 acceptable solution.
+ * Per C/AS2 Para 1.1.2, certain building types and features are excluded.
+ *
+ * ⚠️ LIFE-SAFETY CRITICAL: Incorrect validation could approve buildings that
+ * require alternative compliance methods, leading to inadequate fire protection.
+ *
+ * @module building-scope-validator
+ */
+
+/**
+ * Validate building is within scope for C/AS2
+ *
+ * Checks compliance with C/AS2 Para 1.1.2 scope limitations:
+ * - Building has ≤20 storeys (Para 1.1.2(e))
+ * - Data is valid (not null/undefined)
+ * - Storey count is valid (positive number)
+ *
+ * Buildings with complex features (atriums, prisons, ICU, etc.) are excluded
+ * via user confirmation checkbox on the form.
+ *
+ * @param {Object} building - Building object with scope-related properties
+ * @param {number} [building.storeyCount] - Total number of storeys
+ * @param {boolean} [building.confirmedNoComplexFeatures] - User confirmation flag
+ * @returns {Object} Validation result
+ * @returns {boolean} returns.isInScope - Whether building is in scope for C/AS2
+ * @returns {string} returns.reason - Explanation of result (empty if in scope)
+ * @returns {Array<Object>} returns.violations - Array of specific violations (empty if in scope)
+ * @returns {Array<string>} returns.alternativeSolutions - Suggested alternative compliance methods (empty if in scope)
+ *
+ * @example
+ * // In-scope building
+ * validateBuildingScope({ storeyCount: 15 })
+ * // → { isInScope: true, reason: '', violations: [], alternativeSolutions: [] }
+ *
+ * @example
+ * // Out-of-scope building (too tall)
+ * validateBuildingScope({ storeyCount: 25 })
+ * // → {
+ * //   isInScope: false,
+ * //   reason: 'Building exceeds 20 storeys...',
+ * //   violations: [{...}],
+ * //   alternativeSolutions: ['Verification Method', ...]
+ * // }
+ *
+ * @example
+ * // Invalid data
+ * validateBuildingScope(null)
+ * // → { isInScope: false, reason: 'Invalid building data...', ... }
+ */
+function validateBuildingScope(building) {
+  // === DATA VALIDATION ===
+
+  // Handle null or undefined building
+  if (building === null || building === undefined) {
+    return {
+      isInScope: false,
+      reason: 'Invalid building data: building object is null or undefined',
+      violations: [{
+        type: 'invalid-data',
+        reference: 'Data Validation',
+        description: 'Building object must be provided'
+      }],
+      alternativeSolutions: []
+    };
+  }
+
+  // Handle empty object (no data provided) - default to in-scope
+  // This allows projects to proceed when scope data hasn't been collected yet
+  const hasNoData = building.storeyCount === undefined &&
+                     building.confirmedNoComplexFeatures === undefined;
+  if (hasNoData && Object.keys(building).length === 0) {
+    return {
+      isInScope: true,
+      reason: '',
+      violations: [],
+      alternativeSolutions: []
+    };
+  }
+
+  // === STOREY COUNT VALIDATION ===
+
+  if (building.storeyCount !== undefined) {
+    // Check if non-numeric (including strings like 'twenty')
+    if (typeof building.storeyCount !== 'number' || isNaN(building.storeyCount)) {
+      return {
+        isInScope: false,
+        reason: 'Invalid building data: storey count must be a number',
+        violations: [{
+          type: 'invalid-data',
+          reference: 'Data Validation',
+          description: 'Storey count must be a valid numeric value'
+        }],
+        alternativeSolutions: []
+      };
+    }
+
+    // Check if negative
+    if (building.storeyCount < 0) {
+      return {
+        isInScope: false,
+        reason: 'Invalid building data: storey count cannot be negative',
+        violations: [{
+          type: 'invalid-data',
+          reference: 'Data Validation',
+          description: 'Storey count must be a positive number'
+        }],
+        alternativeSolutions: []
+      };
+    }
+
+    // === SCOPE VALIDATION (Para 1.1.2(e)) ===
+    // C/AS2 does not apply to buildings with more than 20 storeys
+    // Note: ">20" means 21+, so 20 storeys is still IN scope
+    if (building.storeyCount > 20) {
+      return {
+        isInScope: false,
+        reason: `Building exceeds 20 storeys (${building.storeyCount} storeys). Buildings over 20 storeys are considered a complex feature and require alternative compliance per C/AS2 Para 1.1.2(e).`,
+        violations: [{
+          type: 'excessive-height',
+          reference: 'Para 1.1.2(e)',
+          description: `Building has ${building.storeyCount} storeys, exceeding the 20 storey limit for C/AS2`
+        }],
+        alternativeSolutions: [
+          'Verification Method',
+          'Alternative Solution',
+          'Engineering Analysis',
+          'Fire Engineering Design'
+        ]
+      };
+    }
+  }
+
+  // === ALL CHECKS PASSED ===
+  return {
+    isInScope: true,
+    reason: '',
+    violations: [],
+    alternativeSolutions: []
+  };
+}
+
+module.exports = {
+  validateBuildingScope
+};

@@ -1,0 +1,83 @@
+const {
+  createInfoParagraph,
+  createTableParagraph,
+  createWarningParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Adapted from reference documents for C/AS2 compliance
+ */
+const TEXT = {
+  SECTION_TITLE: "Firecell Configuration and Compliance",
+
+  intro: {
+    content: "The building is divided into firecells as specified in C/AS2. Each firecell has been assessed for floor area limitations and compliance with relevant requirements."
+  },
+
+  table_title: "Firecell Summary",
+
+  floor_area_compliance: {
+    compliant: (limit) => `Firecell floor area is within the ${limit}m² limit specified in C/AS2 Table 2.1.`,
+    non_compliant: (actual, limit) => `Firecell floor area of ${actual}m² exceeds the ${limit}m² limit specified in C/AS2 Table 2.1.`
+  }
+};
+
+/**
+ * Generate compliance paragraphs for firecells
+ * @param {ProjectModel} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateComplianceParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // Introduction
+  paragraphs.push(
+    createInfoParagraph(
+      TEXT.SECTION_TITLE,
+      TEXT.intro.content
+    )
+  );
+
+  // Table of firecells
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    const headers = ['Firecell', 'Risk Group', 'Sprinklered', 'Floor Area (m²)', 'Floor Area Compliance'];
+    const rows = [];
+
+    projectModel.firecells.forEach((firecell, index) => {
+      const floorAreaLimit = firecell.firecellCompliance?.effectiveLimit || 'N/A';
+      const compliant = firecell.firecellCompliance?.isCompliant;
+      const complianceStatus = compliant ? '✓ Compliant' : '✗ Non-compliant';
+
+      rows.push([
+        `Firecell ${index + 1}`,
+        firecell.riskGroup,
+        firecell.isSprinklered ? 'Yes' : 'No',
+        (firecell.floorArea || 0).toString(),
+        complianceStatus
+      ]);
+
+      // Add individual warning paragraph for each non-compliant firecell
+      if (compliant === false) {
+        paragraphs.push(
+          createWarningParagraph(
+            `Firecell ${index + 1} Floor Area Non-Compliance`,
+            TEXT.floor_area_compliance.non_compliant(firecell.floorArea, floorAreaLimit)
+          )
+        );
+      }
+    });
+
+    paragraphs.push(
+      createTableParagraph(
+        TEXT.table_title,
+        headers,
+        rows
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateComplianceParagraphs };

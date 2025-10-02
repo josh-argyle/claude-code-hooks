@@ -1,0 +1,467 @@
+const evaluateNote1c = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-1c-evaluator');
+
+describe('Note 1c Evaluator - WB Risk Group Type 2 System Exemption', () => {
+  describe('Applicability', () => {
+    test('should not apply to SM risk group', () => {
+      const firecell = { riskGroup: 'SM' };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to SI risk group', () => {
+      const firecell = { riskGroup: 'SI' };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to CA risk group', () => {
+      const firecell = { riskGroup: 'CA' };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to WS risk group', () => {
+      const firecell = { riskGroup: 'WS' };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should not apply to VP risk group', () => {
+      const firecell = { riskGroup: 'VP' };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(false);
+    });
+
+    test('should apply to WB risk group', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const result = evaluateNote1c(firecell);
+
+      expect(result.applies).toBe(true);
+      expect(result.exempt).toBeDefined();
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('Single Level Building Detection', () => {
+    test('should recognize single level when all WB areas on same floor', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 30 },
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.0, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should recognize multi-level when WB areas on different floors', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', floor: '2', maxStorageHeight: 2.0, maxEscapeRouteOccupants: 30 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+      expect(result.reason).toBe('Type 2 required');
+    });
+
+    test('should treat missing floor data as multi-level', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', maxStorageHeight: 2.0, maxEscapeRouteOccupants: 30 } // Missing floor
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle current firecell missing floor as no exemption', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40
+        // Missing floor
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Storage Height Condition', () => {
+    test('should exempt when storage height is less than 3.0m', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.9,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.9, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt when storage height equals 3.0m', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 3.0,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 3.0, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when storage height exceeds 3.0m', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 3.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 3.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle 0 storage height as valid and within limit', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 0,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 0, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should handle negative storage height as invalid', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: -1,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: -1, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle missing storage height as invalid', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Escape Route Occupant Limits', () => {
+    test('should exempt when exactly 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 50,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 50 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should exempt when less than 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 30,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 30 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+
+    test('should NOT exempt when more than 50 escape route occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 51,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 51 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle 0 occupants as valid', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 0,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 0 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+    });
+  });
+
+  describe('Combined Conditions - All Three Must Be Met', () => {
+    test('should exempt when single level AND low storage AND ≤50 occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true);
+      expect(result.reason).toBe('WB areas on single level, storage <3.0m, ≤50 escape route occupants');
+    });
+
+    test('should NOT exempt when multi-level BUT low storage AND ≤50 occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'WB', floor: '2', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when single level BUT high storage AND ≤50 occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 3.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 3.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should NOT exempt when single level AND low storage BUT >50 occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 60,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 60 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Edge Cases and Missing Data', () => {
+    test('should handle empty allFirecells array', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+
+      const result = evaluateNote1c(firecell, {}, []);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle missing allFirecells parameter', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+
+      const result = evaluateNote1c(firecell);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle mixed risk groups correctly', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 },
+        { riskGroup: 'CA', floor: '1', maxEscapeRouteOccupants: 100 }, // Different risk group - ignored
+        { riskGroup: 'WS', floor: '2', maxStorageHeight: 5.0, maxEscapeRouteOccupants: 200 } // Different risk group - ignored
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(true); // Only WB areas considered
+    });
+
+    test('should handle non-numeric storage height', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 'two meters',
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 'two meters', maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+
+    test('should handle non-numeric occupants', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 'forty',
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 'forty' }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.exempt).toBe(false);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when exempt', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 2.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.reason).toBe('WB areas on single level, storage <3.0m, ≤50 escape route occupants');
+    });
+
+    test('should provide clear reason when not exempt', () => {
+      const firecell = {
+        riskGroup: 'WB',
+        maxStorageHeight: 3.5,
+        maxEscapeRouteOccupants: 40,
+        floor: '1'
+      };
+      const allFirecells = [
+        { riskGroup: 'WB', floor: '1', maxStorageHeight: 3.5, maxEscapeRouteOccupants: 40 }
+      ];
+
+      const result = evaluateNote1c(firecell, {}, allFirecells);
+
+      expect(result.reason).toBe('Type 2 required');
+    });
+  });
+});

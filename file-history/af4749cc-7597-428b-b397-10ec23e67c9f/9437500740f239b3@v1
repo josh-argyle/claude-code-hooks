@@ -1,0 +1,89 @@
+const prisma = require('../utils/prisma');
+
+/**
+ * Get all feedback reports
+ * @param {Object} filters - Optional filters for status
+ * @returns {Promise<Array>} Array of feedback reports
+ */
+const getAllFeedback = async (filters = {}) => {
+  const where = {};
+
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  return await prisma.feedback_reports.findMany({
+    where,
+    include: {
+      user: {
+        select: {
+          username: true,
+          users_contacts: {
+            select: {
+              first_name: true,
+              surname: true
+            }
+          }
+        }
+      }
+    },
+    orderBy: [
+      {
+        status: 'asc' // active before inactive
+      },
+      {
+        created_at: 'desc'
+      }
+    ]
+  });
+};
+
+/**
+ * Create a new feedback report
+ * @param {Object} feedbackData - The feedback data
+ * @returns {Promise<Object>} Created feedback report
+ */
+const createFeedback = async (feedbackData) => {
+  const { userId, username, firstName, surname, feedback, isAnonymous } = feedbackData;
+
+  // Use full name if available, otherwise fallback to username
+  let displayName = username;
+  if (!isAnonymous && firstName && surname) {
+    displayName = `${firstName} ${surname}`.trim();
+  } else if (!isAnonymous && (firstName || surname)) {
+    displayName = `${firstName || ''} ${surname || ''}`.trim();
+  }
+
+  return await prisma.feedback_reports.create({
+    data: {
+      user_id: isAnonymous ? null : userId,
+      username: isAnonymous ? 'Anonymous' : displayName,
+      feedback,
+      is_anonymous: isAnonymous,
+      status: 'active'
+    }
+  });
+};
+
+/**
+ * Update feedback status
+ * @param {string} feedbackId - The feedback ID
+ * @param {string} status - New status (active/inactive)
+ * @returns {Promise<Object>} Updated feedback report
+ */
+const updateFeedbackStatus = async (feedbackId, status) => {
+  return await prisma.feedback_reports.update({
+    where: {
+      feedback_id: feedbackId
+    },
+    data: {
+      status
+    }
+  });
+};
+
+module.exports = {
+  getAllFeedback,
+  createFeedback,
+  updateFeedbackStatus
+};

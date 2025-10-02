@@ -1,0 +1,61 @@
+/**
+ * Note 7 Evaluator - VP Large Area Type 3 System Requirement
+ *
+ * From CAS2 Table 2.2 Note 7:
+ * "A Type 3 system is required where the storage height exceeds 3.0 m"
+ *
+ * Note: The regulatory text says "storage height" but this applies to VP (Vehicle Parking) areas.
+ * Based on the reference implementation, this applies to large VP areas with >40 vehicles OR >1000m².
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'VP' for this note to apply)
+ * @param {number} [firecell.vehicleCount] - Number of vehicles in parking area
+ * @param {number} [firecell.floorArea] - Floor area in m²
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.requiresType3] - Whether Type 3 system is required (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote7(firecell) {
+  // Note 7 only applies to VP (Vehicle Parking) risk group
+  if (firecell.riskGroup !== 'VP') {
+    return { applies: false };
+  }
+
+  // Check if vehicle count condition is met (>40 vehicles)
+  const vehicleCount = firecell.vehicleCount;
+  const vehicleCondition =
+    typeof vehicleCount === 'number' &&
+    isFinite(vehicleCount) &&
+    vehicleCount > 40;
+
+  // Check if floor area condition is met (>1000m²)
+  const floorArea = firecell.floorArea;
+  const areaCondition =
+    typeof floorArea === 'number' &&
+    isFinite(floorArea) &&
+    floorArea > 1000;
+
+  // Type 3 is required if EITHER condition is met
+  const requiresType3 = vehicleCondition || areaCondition;
+
+  // Generate appropriate reason message
+  let reason;
+  if (vehicleCondition && areaCondition) {
+    reason = 'Large parking area (>40 vehicles and >1000m²) - Type 3 system required';
+  } else if (vehicleCondition) {
+    reason = 'Large parking area (>40 vehicles) - Type 3 system required';
+  } else if (areaCondition) {
+    reason = 'Large parking area (>1000m²) - Type 3 system required';
+  } else {
+    reason = 'Standard requirements apply - no Type 3 addition';
+  }
+
+  return {
+    applies: true,
+    requiresType3,
+    reason,
+  };
+}
+
+module.exports = evaluateNote7;

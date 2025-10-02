@@ -1,0 +1,113 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+const { getOccupantDensityOptions } = require('./api/data');
+const { processPipeline } = require('./api/pipeline');
+const ProjectModel = require('./api/models/project-model');
+
+const app = express();
+const port = 3000;
+
+// Set up Pug as the view engine
+app.set('view engine', 'pug');
+app.set('views', path.join(__dirname, 'views'));
+
+// Middleware
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(express.static('public'));
+
+// In-memory storage for processing results (in production, use a database)
+const processedResults = new Map();
+
+// Routes
+app.get('/', (req, res) => {
+  const occupantTypes = getOccupantDensityOptions();
+  const riskGroups = ['SM', 'SI', 'CA', 'WB', 'WS', 'VP'];
+
+  res.render('project-form', {
+    title: 'Fire Safety Compliance Form',
+    occupantTypes,
+    riskGroups
+  });
+});
+
+app.post('/process', (req, res) => {
+  try {
+    // Create project model from form data
+    const projectModel = new ProjectModel();
+
+    // Set project-level properties
+    if (req.body.hasRemoteReceivingCentreConnection !== '') {
+      projectModel.hasRemoteReceivingCentreConnection = req.body.hasRemoteReceivingCentreConnection === 'true';
+    }
+    projectModel.storesHazardousGoods = req.body.storesHazardousGoods;
+
+    // Process firecells
+    const firecells = Array.isArray(req.body.firecells) ? req.body.firecells : [req.body.firecells];
+
+    firecells.forEach(firecellData => {
+      if (firecellData && firecellData.riskGroup) {
+        const firecell = {
+          riskGroup: firecellData.riskGroup,
+          occupantType: firecellData.occupantType,
+          occupantLoad: parseFloat(firecellData.occupantLoad),
+          escapeHeight: parseFloat(firecellData.escapeHeight),
+          isSprinklered: firecellData.isSprinklered === 'true',
+          floorArea: parseFloat(firecellData.floorArea)
+        };
+
+        // Add risk group specific fields
+        if (firecellData.riskGroup === 'VP' && firecellData.hasVehicleStacker !== undefined) {
+          firecell.hasVehicleStacker = firecellData.hasVehicleStacker === 'true';
+        }
+
+        if (firecellData.riskGroup === 'CA' && firecellData.isCinemaOrTheatre !== undefined) {
+          firecell.isCinemaOrTheatre = firecellData.isCinemaOrTheatre === 'true';
+        }
+
+        projectModel.addFirecell(firecell);
+      }
+    });
+
+    // Process through pipeline
+    const processedModel = processPipeline(projectModel);
+
+    // Store result with a unique ID
+    const resultId = Date.now().toString();
+    processedResults.set(resultId, processedModel);
+
+    // Redirect to results page
+    res.redirect(`/results/${resultId}`);
+
+  } catch (error) {
+    console.error('Processing error:', error);
+    res.status(400).render('error', {
+      title: 'Processing Error',
+      error: error.message
+    });
+  }
+});
+
+app.get('/results/:id', (req, res) => {
+  const resultId = req.params.id;
+  const processedModel = processedResults.get(resultId);
+
+  if (!processedModel) {
+    return res.status(404).render('error', {
+      title: 'Results Not Found',
+      error: 'The requested results could not be found.'
+    });
+  }
+
+  res.render('results', {
+    title: 'Processing Results',
+    project: processedModel
+  });
+});
+
+app.listen(port, () => {
+  console.log(`Fire Safety Compliance server running at http://localhost:${port}`);
+});
+
+module.exports = app;

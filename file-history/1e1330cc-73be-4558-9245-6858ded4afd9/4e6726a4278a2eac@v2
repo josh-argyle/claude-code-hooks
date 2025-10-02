@@ -1,0 +1,136 @@
+/**
+ * Floor Options Generator Utility
+ *
+ * Generates standardized floor identifiers for building configuration.
+ * Used to create consistent floor options across project and firecell forms.
+ *
+ * @module floor-options
+ */
+
+/**
+ * Generate array of floor options based on building configuration
+ *
+ * Floor naming convention:
+ * - Basements: B1 (first basement below ground), B2 (second basement), etc.
+ * - Ground floor: G (always present)
+ * - Floors above ground: 1 (first floor above ground), 2, 3, etc.
+ *
+ * @param {number} numberOfFloorsAboveGround - Number of floors above ground (not including ground)
+ * @param {number} numberOfBasementLevels - Number of basement levels below ground
+ * @returns {Array<string>} Array of floor identifiers from bottom to top
+ *
+ * @example
+ * // Building with 2 basements, ground, and 3 floors above
+ * getFloorOptions(3, 2)
+ * // Returns: ['B2', 'B1', 'G', '1', '2', '3']
+ *
+ * @example
+ * // Building with no basement, ground, and 1 floor above
+ * getFloorOptions(1, 0)
+ * // Returns: ['G', '1']
+ *
+ * @example
+ * // Building with 1 basement, ground, and 5 floors above
+ * getFloorOptions(5, 1)
+ * // Returns: ['B1', 'G', '1', '2', '3', '4', '5']
+ */
+function getFloorOptions(numberOfFloorsAboveGround = 1, numberOfBasementLevels = 0) {
+  const floors = [];
+
+  // Add basement levels (from deepest to shallowest)
+  // B2 is deeper than B1, so if we have 2 basements, generate [B2, B1]
+  for (let i = numberOfBasementLevels; i >= 1; i--) {
+    floors.push(`B${i}`);
+  }
+
+  // Add ground floor (always present)
+  floors.push('G');
+
+  // Add floors above ground
+  for (let i = 1; i <= numberOfFloorsAboveGround; i++) {
+    floors.push(String(i));
+  }
+
+  return floors;
+}
+
+/**
+ * Get default floor (ground floor)
+ *
+ * @returns {string} 'G' (ground floor identifier)
+ */
+function getDefaultFloor() {
+  return 'G';
+}
+
+/**
+ * Check if floor identifier is valid for given building configuration
+ *
+ * @param {string} floor - Floor identifier to validate
+ * @param {number} numberOfFloorsAboveGround - Number of floors above ground
+ * @param {number} numberOfBasementLevels - Number of basement levels
+ * @returns {boolean} True if floor is valid for this building configuration
+ *
+ * @example
+ * isValidFloor('B2', 3, 2) // true (B2 exists)
+ * isValidFloor('B3', 3, 2) // false (only 2 basements)
+ * isValidFloor('4', 3, 0)  // false (only 3 floors above ground: 1, 2, 3)
+ */
+function isValidFloor(floor, numberOfFloorsAboveGround, numberOfBasementLevels) {
+  const validFloors = getFloorOptions(numberOfFloorsAboveGround, numberOfBasementLevels);
+  return validFloors.includes(floor);
+}
+
+/**
+ * Get human-readable label for floor identifier
+ *
+ * @param {string} floor - Floor identifier (e.g., 'G', '1', 'B1')
+ * @returns {string} Human-readable label
+ *
+ * @example
+ * getFloorLabel('G')  // "Ground Floor"
+ * getFloorLabel('1')  // "1st Floor"
+ * getFloorLabel('2')  // "2nd Floor"
+ * getFloorLabel('B1') // "Basement Level 1"
+ */
+function getFloorLabel(floor) {
+  if (floor === 'G') {
+    return 'Ground Floor';
+  }
+
+  if (floor.startsWith('B')) {
+    const level = floor.substring(1);
+    return `Basement Level ${level}`;
+  }
+
+  // Standard floor numbers
+  const floorNum = parseInt(floor);
+  if (!isNaN(floorNum)) {
+    // Add ordinal suffix (1st, 2nd, 3rd, 4th, etc.)
+    const suffix = getOrdinalSuffix(floorNum);
+    return `${floorNum}${suffix} Floor`;
+  }
+
+  return floor; // Fallback
+}
+
+/**
+ * Get ordinal suffix for a number (st, nd, rd, th)
+ * @private
+ */
+function getOrdinalSuffix(num) {
+  const j = num % 10;
+  const k = num % 100;
+
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+}
+
+module.exports = {
+  getFloorOptions,
+  getDefaultFloor,
+  isValidFloor,
+  getFloorLabel,
+};

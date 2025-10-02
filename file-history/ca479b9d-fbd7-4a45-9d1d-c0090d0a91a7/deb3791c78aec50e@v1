@@ -1,0 +1,340 @@
+const axios = require('axios');
+const { addDays, formatDateForWorkbenchAPI } = require('../../../public/js/dateUtils');
+const prisma = require('../../utils/prisma');
+const logger = require('../../utils/logger');
+
+function getNextFriday(date) {
+  const dayOfWeek = date.getUTCDay(); // Use UTC to avoid timezone issues
+  const friday = 5;
+
+  let diff = friday - dayOfWeek;
+
+  if (diff < 0) {
+    diff += 7;
+  }
+
+  const nextFriday = addDays(date, diff); // Use dateUtils for date arithmetic
+  return formatDateForWorkbenchAPI(nextFriday); // Use dateUtils for formatting
+}
+
+async function getTimeSheet(personId, inputDate, holidayProjectCodes) {
+  const friday = getNextFriday(inputDate);
+  const apiUrl = `https://cont.wbi.cloud/api/TimesheetDetailApi?personId=${personId}&timesheetDate=${encodeURIComponent(friday)}`;
+  try {
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: process.env.WORKBENCH_TOKEN
+      }
+    });
+
+    const apiData = response.data;
+
+    const entries = [];
+    if (apiData.Rows && Array.isArray(apiData.Rows)) {
+      apiData.Rows.forEach((row) => {
+        const line = {
+          id: row.FileAttachment.CellId,
+          entry_date: row.TranDate,
+          project_code: row.JobCode.CellId,
+          work_centre: row.WorkCentreCode.CellValue,
+          hours: parseFloat(row.Quantity.CellNumValue),
+          project_description: ((row.JobCode?.CellValue || '').split(': ')[1] || '').trim()
+        };
+        if (holidayProjectCodes.includes(row.JobCode.CellId)) {
+          line.activity_code = row.ActivityCode.CellValue;
+        }
+        entries.push(line);
+      });
+    }
+
+    return {
+      complete: apiData.Form.CompletedField.BoolValue,
+      entries
+    };
+  } catch (e) {
+    logger.info('Error fetching time sheet: ', e);
+  }
+}
+
+async function getUserTimesheets(personId) {
+  try {
+    const response = await axios.post('https://cont.wbi.cloud/api/TimesheetListApi', {
+      predicate: {
+        PredicateRows: [
+        ],
+        IsOr: false
+      },
+      sidx: 'TimesheetDate',
+      sord: 'desc',
+      page: 1,
+      rows: 5,
+      IntValue: personId
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: process.env.WORKBENCH_TOKEN
+      }
+    });
+
+    // logger.info(response.data.rows[0])
+
+    return response.data.rows.map(data => ({
+      date: data.TimesheetDate,
+      hours: data.Entered.CellNumValue,
+      Completed: data.Completed
+    }));
+  } catch (e) {
+    logger.info('Error fetching time sheet: ', e);
+  }
+}
+
+async function postTimeSheet(timesheetData) {
+  try {
+    const response = await axios.post(
+      'https://cont.wbi.cloud/api/TimesheetDetailApi',
+      timesheetData,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: process.env.WORKBENCH_TOKEN
+        }
+      }
+    );
+    return response.data; // Only return the data, not full response
+  } catch (e) {
+    logger.error('Error posting time sheet:', {
+      status: e.response?.status,
+      statusText: e.response?.statusText,
+      errorData: e.response?.data,
+      payload: JSON.stringify(timesheetData, null, 2)
+    });
+    throw e; // Re-throw so calling code can handle it
+  }
+}
+
+function generateTimesheet(timesheetData, workbench_employee_id, holidayProjectCodes, submitForCompletion = false) {
+  logger.info('generateTimesheet called with:', {
+    workbench_employee_id,
+    holidayProjectCodes,
+    date: timesheetData.date,
+    entriesCount: timesheetData.entries.length
+  });
+
+  const data = {
+    Form: {
+      Key: {
+        PersonId: workbench_employee_id,
+        TimesheetDate: getNextFriday(new Date(timesheetData.date))
+      }
+    },
+    Rows: []
+  };
+
+  // Add completion field if submitting for completion
+  if (submitForCompletion) {
+    data.Form.CompletedField = {
+      BoolValue: true
+    };
+    data.Form.ApprovedField = {
+      BoolValue: false
+    };
+  }
+
+  timesheetData.entries.forEach(row => {
+    // Trim the work centre code
+    const getDataBeforeWhitespace = (str) => str.split(/\s+/)[0];
+
+    // If the timesheet row is a leave entry, we need to do a special case
+    let activity_code = 'LAB';
+    let work_centre = getDataBeforeWhitespace(row.work_centre);
+    const isHolidayProject = holidayProjectCodes.includes(row.project_code);
+
+    logger.info('Processing entry:', {
+      project_code: row.project_code,
+      original_work_centre: row.work_centre,
+      isHolidayProject,
+      holidayProjectCodes
+    });
+    if (isHolidayProject) {
+      activity_code = work_centre;
+      work_centre = 'LAB';
+      logger.info('Holiday project detected - swapped:', {
+        new_activity_code: activity_code,
+        new_work_centre: work_centre
+      });
+    }
+
+    const line = {
+      TranDate: row.entry_date,
+      FinCoCode: '01',
+      JobCode: {
+        CellId: row.project_code
+      },
+      WorkCentreCode: {
+        CellId: work_centre
+      },
+      ActivityCode: {
+        // "CellId": timesheet.activity_code
+        CellId: activity_code
+      },
+      Delete: {
+        CellBoolValue: row.delete === true
+      },
+      QuantityOnly: {
+        CellNumValue: row.hours
+      },
+      OriginalKey: {
+        JobTranId: row.id ? row.id : null,
+        PersonId: workbench_employee_id,
+        FinCoCode: '01'
+      },
+      CurrentKey:
+                {
+                  JobTranId: row.id ? row.id : null,
+                  PersonId: workbench_employee_id,
+                  FinCoCode: '01',
+                  JobCode: row.project_code,
+                  ActivityCode: activity_code,
+                  WorkCentreCode: work_centre
+                }
+    };
+
+    data.Rows.push(line);
+  });
+
+  logger.info('Final Workbench payload:', JSON.stringify(data, null, 2));
+  return data;
+}
+
+async function getWorkCentres(projectCode, personId) {
+  try {
+    // First check if this is a holiday project
+    const profitCentre = await prisma.config_profit_centres.findFirst({
+      where: {
+        holiday_project_code: projectCode,
+        is_active: true
+      }
+    });
+
+    // If it's a holiday project, return activities from our database
+    if (profitCentre) {
+      const activities = await prisma.workbench_data_holiday_activity_codes.findMany({
+        where: {
+          project_code: projectCode
+        },
+        select: {
+          activity_code: true,
+          description: true
+        },
+        orderBy: {
+          activity_code: 'asc'
+        }
+      });
+
+      // Return in the exact same format as work centres
+      return activities.map(activity => ({
+        work_centre: activity.activity_code,
+        description: activity.description
+      }));
+    }
+
+    // Otherwise, get work centres from Workbench API as normal
+    const response = await axios.post('https://cont.wbi.cloud/Lookups/WorkCentre.aspx/Autocomplete', {
+      functionalCode: 'Timesheets',
+      FromPicker: true,
+      JobTranId: 0,
+      PersonId: personId,
+      FinCoCode: '01',
+      CostRate: 0,
+      GstRate: 0.15,
+      NewRow_: 9,
+      JobCode: projectCode,
+      Action: '',
+      LogHeader: '',
+      ActivityCode: 'LAB',
+      TimeCode: '',
+      ActivityType: 'TIME',
+      WorkCentreCode: '',
+      Profile: '',
+      KeyName: 'JobCode',
+      ActivitySubType: 'CHARGE',
+      CostType: '',
+      limit: 50,
+      fragment: ''
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: process.env.WORKBENCH_TOKEN
+      }
+    });
+
+    // Transform response to match expected format
+    if (response.data && response.data.rows) {
+      return response.data.rows.map(row => ({
+        work_centre: row.value,
+        description: row.text
+      }));
+    }
+
+    return [];
+  } catch (error) {
+    logger.error('Error fetching work centres:', error);
+    return [];
+  }
+}
+
+async function updateTimesheetCompletion(personId, timesheetDate) {
+  // Format date as "DD-MMM-YYYY" for Workbench API
+  const formatDateForWorkbench = (date) => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  };
+
+  try {
+    const response = await axios.post(
+      'https://cont.wbi.cloud/Timesheets/Daily.aspx/Update',
+      {
+        timesheetDateValue: formatDateForWorkbench(timesheetDate),
+        SelectedDay: null,
+        CompletedField: { BoolValue: true },
+        BreakDurationHours: '0.5000',
+        IsTablet: 'False',
+        PersonId: personId.toString(),
+        FunctionalCode: 'Timesheets',
+        SecondaryCode: null,
+        ApprovedField: { BoolValue: false },
+        rows: [],
+        footers: []
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: process.env.WORKBENCH_TOKEN
+        }
+      }
+    );
+    return response.data;
+  } catch (e) {
+    logger.info('Error updating timesheet completion: ', e.response?.status);
+    throw e;
+  }
+}
+
+module.exports = {
+  getUserTimesheets,
+  getTimeSheet,
+  postTimeSheet,
+  generateTimesheet,
+  getWorkCentres,
+  updateTimesheetCompletion
+};

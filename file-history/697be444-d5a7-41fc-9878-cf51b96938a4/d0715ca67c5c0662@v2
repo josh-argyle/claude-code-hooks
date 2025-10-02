@@ -1,0 +1,257 @@
+/**
+ * Remote Receiving Centre (RRC) Requirement Calculator
+ *
+ * Implements C/AS2 Paragraph 2.2.2: Remote receiving centre connection requirements
+ *
+ * REGULATORY SUMMARY:
+ * Buildings with fire alarm (Types 2-5) or sprinkler systems (Types 6-7) require
+ * a connection to a remote receiving centre for monitoring, UNLESS exempted by:
+ *
+ * Exemption (a): SM permanent accommodation AND escape height < 10m
+ * Exemption (b): CA with ≤250 occupants AND <4m escape height AND not cinema/theatre
+ * Exemption (c): WB with ≤100 occupants AND <4m escape height
+ * Exemption (d): VP with no vehicle stackers
+ * Exemption (e): Supplementary detection systems (not required by Table 2.2)
+ *
+ * CRITICAL COMPLIANCE POINTS:
+ * - SM exemption requires BOTH permanent accommodation AND <10m escape height
+ * - SI has NO exemption (always requires RRC if fire alarm/sprinkler present)
+ * - Supplementary systems (installed beyond Table 2.2 minimums) don't trigger RRC
+ * - Exemption (e) only applies to detection (Types 3-5), NOT sprinklers (Types 6-7)
+ *
+ * @module remote-receiving-centre/calculator
+ */
+
+const { parseSystemCode, getFireSafetySystems } = require('../../data/services/fire-safety-systems-service');
+
+/**
+ * Check if REQUIRED fire safety systems need remote receiving centre connection
+ * Implements C/AS2 2.2.2 exemption (e) for supplementary systems
+ *
+ * Only systems REQUIRED by Table 2.2 are checked. Supplementary systems added
+ * beyond code minimums do not trigger RRC requirement per C/AS2 2.2.2(e).
+ *
+ * Exemption (e) applies only to "automatic heat or smoke detection systems"
+ * (Types 3, 4, 5), NOT to manual alarms (Type 2) or sprinklers (Types 6-7).
+ *
+ * @param {Object} firecell - The firecell object with all properties
+ * @returns {boolean} True if REQUIRED systems need remote connection
+ */
+function requiresRemoteConnection(firecell) {
+  console.log('\n=== requiresRemoteConnection DEBUG ===');
+  console.log('Firecell:', JSON.stringify({
+    riskGroup: firecell.riskGroup,
+    escapeHeight: firecell.escapeHeight,
+    occupantLoad: firecell.occupantLoad,
+    sleepingOccupantType: firecell.sleepingOccupantType,
+    hasVehicleStacker: firecell.hasVehicleStacker,
+    fireSafetySystems: firecell.fireSafetySystems
+  }, null, 2));
+
+  // Build parameters for getFireSafetySystems based on risk group
+  let params = {
+    escapeHeight: firecell.escapeHeight
+  };
+
+  // SM/SI risk groups need occupantType
+  if (['SM', 'SI'].includes(firecell.riskGroup)) {
+    params.occupantType = firecell.sleepingOccupantType || firecell.smOccupantType || firecell.siOccupantType || 'permanent';
+  }
+
+  // CA/WB/WS risk groups need occupantLoad
+  if (['CA', 'WB', 'WS'].includes(firecell.riskGroup)) {
+    params.occupantLoad = firecell.occupantLoad;
+  }
+
+  // VP risk group needs hasVehicleStacker
+  if (firecell.riskGroup === 'VP') {
+    params.hasVehicleStacker = firecell.hasVehicleStacker || false;
+  }
+
+  console.log('Params for getFireSafetySystems:', params);
+
+  // Get REQUIRED systems from Table 2.2
+  const requiredSystems = getFireSafetySystems(firecell.riskGroup, params);
+  console.log('Required systems from Table 2.2:', requiredSystems);
+
+  if (!requiredSystems || requiredSystems.length === 0) {
+    console.log('No required systems, returning false');
+    return false;
+  }
+
+  // Check if any REQUIRED system is Type 2-7 (fire alarm or sprinkler)
+  // This automatically implements exemption (e) - supplementary systems are ignored
+  const hasTypes2to7 = requiredSystems.some(systemCode => {
+    const parsed = parseSystemCode(systemCode);
+    const systemType = parsed.type;
+    console.log(`System ${systemCode} -> Type ${systemType}`);
+
+    // Types 2-7 require remote connection when REQUIRED by Table 2.2
+    return systemType >= 2 && systemType <= 7;
+  });
+
+  console.log('Has Types 2-7:', hasTypes2to7);
+  console.log('=== END DEBUG ===\n');
+
+  return hasTypes2to7;
+}
+
+/**
+ * Check if a firecell qualifies for remote receiving centre exemption
+ * Based on C/AS2 2.2.2 exemption criteria (a) through (d)
+ *
+ * EXEMPTIONS:
+ * (a) SM: permanent accommodation AND escape height < 10m
+ * (b) CA: ≤250 occupants AND <4m escape AND not cinema/theatre
+ * (c) WB: ≤100 occupants AND <4m escape height
+ * (d) VP: no vehicle stackers installed
+ *
+ * SI and WS: NO exemptions available
+ *
+ * @param {Object} firecell - The firecell to check for exemptions
+ * @param {string} firecell.riskGroup - Risk group (SM, SI, CA, WB, WS, VP)
+ * @param {string} firecell.sleepingOccupantType - SM/SI occupant type (permanent/transient/education/careOrDetention)
+ * @param {string} [firecell.smOccupantType] - Legacy SM occupant type field (for backward compatibility)
+ * @param {string} [firecell.siOccupantType] - Legacy SI occupant type field (for backward compatibility)
+ * @param {number} firecell.escapeHeight - Escape height in metres
+ * @param {number} firecell.occupantLoad - Number of occupants
+ * @param {boolean} firecell.hasVehicleStacker - VP: whether vehicle stackers present
+ * @param {boolean} firecell.isCinemaOrTheatre - CA: whether cinema or theatre
+ * @returns {boolean} True if exempt from RRC requirement, false if RRC required
+ */
+function checkExemption(firecell) {
+  const {
+    riskGroup,
+    occupantLoad,
+    escapeHeight,
+    hasVehicleStacker,
+    isCinemaOrTheatre,
+    sleepingOccupantType,
+    smOccupantType,
+    siOccupantType
+  } = firecell;
+
+  switch (riskGroup) {
+    case 'SM':
+      // C/AS2 2.2.2(a): for risk group SM permanent accommodation AND escape height < 10m
+      // BOTH conditions must be true for exemption
+      // - permanent accommodation (not transient/education/careOrDetention)
+      // - escape height less than 10m
+
+      // Handle missing occupant type for backward compatibility
+      // If undefined, default to 'permanent' but log a warning
+      const occupantType = sleepingOccupantType || smOccupantType;
+
+      if (!occupantType) {
+        console.warn('SM firecell missing sleepingOccupantType, defaulting to "permanent" for RRC exemption check');
+      }
+
+      const isPermanent = (occupantType === 'permanent' || !occupantType);
+      const isUnder10m = escapeHeight < 10;
+
+      return isPermanent && isUnder10m;
+
+    case 'CA':
+      // b) for risk group CA
+      //   i) with no more than 250 occupants and an escape height of less than 4 m, and
+      //   ii) the use is not a cinema or theatre
+      return occupantLoad <= 250 &&
+             escapeHeight < 4 &&
+             (isCinemaOrTheatre === undefined || isCinemaOrTheatre === false);
+
+    case 'WB':
+      // c) for risk group WB, with no more than 100 occupants and an escape height of less than 4 m
+      return occupantLoad <= 100 && escapeHeight < 4;
+
+    case 'VP':
+      // d) for risk group VP where no vehicle stackers are installed
+      return hasVehicleStacker === undefined || hasVehicleStacker === false;
+
+    case 'SI':
+    case 'WS':
+      // No exemptions available for SI and WS risk groups
+      return false;
+
+    default:
+      // Unknown risk group, assume no exemption
+      return false;
+  }
+}
+
+/**
+ * Evaluate remote receiving centre requirements for the entire building
+ * Based on paragraph 2.2.2: Where a fire alarm or sprinkler system is required
+ * there shall be a connection to a remote receiving centre, unless exemptions apply
+ *
+ * @param {ProjectModel} projectModel - The project model containing all firecells
+ * @returns {boolean} True if remote receiving centre connection is required
+ */
+function evaluateRemoteReceivingCentre(projectModel) {
+  // Loop through all firecells to check if any requires remote connection
+  for (const firecell of projectModel.firecells) {
+    // Check if firecell has REQUIRED systems that need remote connection
+    // Passing full firecell to enable supplementary systems exemption (C/AS2 2.2.2(e))
+    const hasSystemsRequiringConnection = requiresRemoteConnection(firecell);
+
+    if (!hasSystemsRequiringConnection) {
+      continue; // No relevant systems, skip this firecell
+    }
+
+    // Check if firecell qualifies for exemption based on risk group
+    const isExempt = checkExemption(firecell);
+
+    if (!isExempt) {
+      return true; // If any firecell requires connection, entire building does
+    }
+  }
+
+  return false; // All firecells are either exempt or don't have relevant systems
+}
+
+/**
+ * Calculate compliance between required and provided remote receiving centre connection
+ *
+ * @param {boolean} required - Whether connection is required
+ * @param {boolean|undefined} provided - Whether connection is provided (undefined if not specified)
+ * @returns {Object} Compliance result with status and details
+ */
+function calculateRemoteReceivingCentreCompliance(required, provided) {
+  // If not specified by user, we can't determine compliance
+  if (provided === undefined) {
+    return {
+      isCompliant: null,
+      status: 'unknown',
+      required: required,
+      provided: 'not specified',
+      message: 'Remote receiving centre connection status not specified'
+    };
+  }
+
+  const isCompliant = required === provided;
+
+  let message;
+  if (isCompliant) {
+    message = required
+      ? 'Remote receiving centre connection is required and provided'
+      : 'Remote receiving centre connection is not required and not provided';
+  } else {
+    message = required
+      ? 'Remote receiving centre connection is required but not provided'
+      : 'Remote receiving centre connection is provided but not required';
+  }
+
+  return {
+    isCompliant: isCompliant,
+    status: isCompliant ? 'compliant' : 'non-compliant',
+    required: required,
+    provided: provided,
+    message: message
+  };
+}
+
+module.exports = {
+  requiresRemoteConnection,
+  checkExemption,
+  evaluateRemoteReceivingCentre,
+  calculateRemoteReceivingCentreCompliance
+};

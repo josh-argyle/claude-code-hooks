@@ -1,0 +1,307 @@
+/**
+ * Note 6 Evaluator - WB Storage Height Limitations per Table 1.1
+ *
+ * From CAS2 Table 2.2 Note 6:
+ * "See limitations in Table 1.1"
+ *
+ * This note applies to WB (Warehouse/Bulk goods) risk group and enforces
+ * storage height limitations as defined in CAS2 Table 1.1. The limitations
+ * vary significantly based on the WB activity type.
+ *
+ * REQUIRED FIELD: wbActivityType must be provided for all WB firecells
+ *
+ * CAS2 Table 1.1 WB Storage Height Limitations by Activity Type:
+ *
+ * PROFESSIONAL (Offices, laboratories, workshops):
+ * - Storage height: < 3.0m ONLY
+ * - Floor area: No restrictions
+ *
+ * INDUSTRIAL (Factories, manufacturing):
+ * - Storage height: < 3.0m ONLY
+ * - Floor area: No restrictions
+ *
+ * STORAGE (Warehouses, storage buildings):
+ * - Storage height ≤ 5.0m: No floor area restrictions
+ * - Storage height 5.0m < h ≤ 8.0m: Maximum 4200m² total floor area
+ * - Storage height > 8.0m: Not permitted (apex limit)
+ *
+ * TEMPERATURE CONTROLLED:
+ * - Storage height < 3.0m: No restrictions
+ * - Storage height 3.0m ≤ h ≤ 5.0m: Limited areas up to 500m² maximum
+ * - Storage height > 5.0m: Not permitted
+ *
+ * INTERMITTENT (Aircraft hangers, fixed plant/machinery):
+ * - No specific storage height requirements mentioned in Table 1.1
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'WB' for this note to apply)
+ * @param {string} firecell.wbActivityType - REQUIRED: WB activity type ('professional' | 'industrial' | 'storage' | 'temperatureControlled' | 'intermittent')
+ * @param {number} [firecell.maxStorageHeight] - Maximum storage height in metres
+ * @param {number} [firecell.totalFloorArea] - Total floor area in m² (required for storage >5m or temperature controlled ≥3m)
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.compliant] - Whether the firecell meets storage height limitations (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote6(firecell) {
+  // Note 6 only applies to WB (Warehouse/Bulk goods) risk group
+  if (firecell.riskGroup !== 'WB') {
+    return { applies: false };
+  }
+
+  // WB activity type is REQUIRED for Table 1.1 validation
+  if (!firecell.wbActivityType) {
+    return {
+      applies: true,
+      compliant: false,
+      reason: 'WB activity type is required for Table 1.1 compliance validation',
+    };
+  }
+
+  const activityType = firecell.wbActivityType;
+  const validTypes = [
+    'professional',
+    'industrial',
+    'storage',
+    'temperatureControlled',
+    'intermittent',
+  ];
+
+  if (!validTypes.includes(activityType)) {
+    return {
+      applies: true,
+      compliant: false,
+      reason: `Invalid WB activity type: ${activityType}`,
+    };
+  }
+
+  // Handle missing or invalid storage height - assume compliance for intermittent only
+  if (
+    firecell.maxStorageHeight === null ||
+    firecell.maxStorageHeight === undefined
+  ) {
+    // Intermittent buildings don't have specific storage height requirements
+    if (activityType === 'intermittent') {
+      return {
+        applies: true,
+        compliant: true,
+        reason:
+          'Intermittent WB - no specific storage height requirements per Table 1.1',
+      };
+    }
+
+    return {
+      applies: true,
+      compliant: false,
+      reason: 'Storage height data required for Table 1.1 compliance check',
+    };
+  }
+
+  // Validate storage height is a valid number
+  if (
+    typeof firecell.maxStorageHeight !== 'number' ||
+    !isFinite(firecell.maxStorageHeight) ||
+    firecell.maxStorageHeight < 0
+  ) {
+    return {
+      applies: true,
+      compliant: false,
+      reason:
+        'Invalid storage height data - cannot validate Table 1.1 compliance',
+    };
+  }
+
+  const storageHeight = firecell.maxStorageHeight;
+
+  // ===== PROFESSIONAL ACTIVITIES =====
+  // Offices, law practices, laboratories, workshops
+  // Limitation: May contain storage with capable height < 3.0m
+  if (activityType === 'professional') {
+    if (storageHeight >= 3.0) {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Professional WB limited to storage <3.0m per Table 1.1 (actual: ${storageHeight.toFixed(1)}m)`,
+      };
+    }
+    return {
+      applies: true,
+      compliant: true,
+      reason: `Professional WB with ${storageHeight.toFixed(1)}m storage complies with Table 1.1`,
+    };
+  }
+
+  // ===== INDUSTRIAL ACTIVITIES =====
+  // Factories, manufacturing plants (excluding foamed plastics)
+  // Limitation: Capable height of storage < 3.0m
+  if (activityType === 'industrial') {
+    if (storageHeight >= 3.0) {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Industrial WB limited to storage <3.0m per Table 1.1 (actual: ${storageHeight.toFixed(1)}m)`,
+      };
+    }
+    return {
+      applies: true,
+      compliant: true,
+      reason: `Industrial WB with ${storageHeight.toFixed(1)}m storage complies with Table 1.1`,
+    };
+  }
+
+  // ===== STORAGE ACTIVITIES =====
+  // Warehouses and storage buildings
+  // Limitations:
+  // - Buildings/parts capable of storage ≤ 5.0m in height (no floor area limit)
+  // - Warehouses capable of storage >5.0m but ≤8.0m (max 4200m² total floor area)
+  // - Storage >8.0m apex: Not permitted
+  if (activityType === 'storage') {
+    // Storage > 8.0m: Exceeds apex limit
+    if (storageHeight > 8.0) {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Storage WB exceeds 8.0m apex limit per Table 1.1 (actual: ${storageHeight.toFixed(1)}m)`,
+      };
+    }
+
+    // Storage ≤ 5.0m: No restrictions
+    if (storageHeight <= 5.0) {
+      return {
+        applies: true,
+        compliant: true,
+        reason: `Storage WB with ${storageHeight.toFixed(1)}m storage complies with Table 1.1`,
+      };
+    }
+
+    // Storage 5.0m < h ≤ 8.0m: Requires floor area ≤ 4200m²
+    if (
+      firecell.totalFloorArea === null ||
+      firecell.totalFloorArea === undefined
+    ) {
+      return {
+        applies: true,
+        compliant: false,
+        reason:
+          'Storage >5.0m requires total floor area data for Table 1.1 compliance check (≤4200m² limit)',
+      };
+    }
+
+    if (
+      typeof firecell.totalFloorArea !== 'number' ||
+      !isFinite(firecell.totalFloorArea) ||
+      firecell.totalFloorArea < 0
+    ) {
+      return {
+        applies: true,
+        compliant: false,
+        reason:
+          'Invalid floor area data - cannot validate Table 1.1 compliance',
+      };
+    }
+
+    const floorArea = firecell.totalFloorArea;
+
+    if (floorArea <= 4200) {
+      return {
+        applies: true,
+        compliant: true,
+        reason: `Storage WB with ${storageHeight.toFixed(1)}m storage and ${floorArea}m² floor area complies with Table 1.1`,
+      };
+    } else {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Storage WB with ${storageHeight.toFixed(1)}m storage exceeds 4200m² floor area limit per Table 1.1 (actual: ${floorArea}m²)`,
+      };
+    }
+  }
+
+  // ===== TEMPERATURE CONTROLLED STORAGE =====
+  // Limitations:
+  // - Capable height of storage < 3.0m (no restrictions)
+  // - Limited areas in processing: up to 500m² max with ≤ 5.0m storage height
+  // - Storage > 5.0m: Not permitted
+  if (activityType === 'temperatureControlled') {
+    // Storage > 5.0m: Not permitted
+    if (storageHeight > 5.0) {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Temperature controlled WB exceeds 5.0m storage limit per Table 1.1 (actual: ${storageHeight.toFixed(1)}m)`,
+      };
+    }
+
+    // Storage < 3.0m: No restrictions
+    if (storageHeight < 3.0) {
+      return {
+        applies: true,
+        compliant: true,
+        reason: `Temperature controlled WB with ${storageHeight.toFixed(1)}m storage complies with Table 1.1`,
+      };
+    }
+
+    // Storage 3.0m ≤ h ≤ 5.0m: Requires floor area ≤ 500m² (limited areas)
+    if (
+      firecell.totalFloorArea === null ||
+      firecell.totalFloorArea === undefined
+    ) {
+      return {
+        applies: true,
+        compliant: false,
+        reason:
+          'Temperature controlled storage ≥3.0m requires total floor area data for Table 1.1 compliance check (≤500m² limit)',
+      };
+    }
+
+    if (
+      typeof firecell.totalFloorArea !== 'number' ||
+      !isFinite(firecell.totalFloorArea) ||
+      firecell.totalFloorArea < 0
+    ) {
+      return {
+        applies: true,
+        compliant: false,
+        reason:
+          'Invalid floor area data - cannot validate Table 1.1 compliance',
+      };
+    }
+
+    const floorArea = firecell.totalFloorArea;
+
+    if (floorArea <= 500) {
+      return {
+        applies: true,
+        compliant: true,
+        reason: `Temperature controlled WB with ${storageHeight.toFixed(1)}m storage in ${floorArea}m² limited area complies with Table 1.1`,
+      };
+    } else {
+      return {
+        applies: true,
+        compliant: false,
+        reason: `Temperature controlled WB with ${storageHeight.toFixed(1)}m storage exceeds 500m² floor area limit for limited areas per Table 1.1 (actual: ${floorArea}m²)`,
+      };
+    }
+  }
+
+  // ===== INTERMITTENT ACTIVITIES =====
+  // Light aircraft hangers, fixed plant/machinery, spray painting
+  // No specific storage height requirements mentioned in Table 1.1
+  if (activityType === 'intermittent') {
+    return {
+      applies: true,
+      compliant: true,
+      reason:
+        'Intermittent WB - no specific storage height requirements per Table 1.1',
+    };
+  }
+
+  // Should not reach here due to validation above, but included for safety
+  return {
+    applies: true,
+    compliant: false,
+    reason: `Unknown WB activity type: ${activityType}`,
+  };
+}
+
+module.exports = evaluateNote6;

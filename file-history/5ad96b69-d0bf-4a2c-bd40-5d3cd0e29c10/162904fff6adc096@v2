@@ -1,0 +1,42 @@
+/**
+ * Note 2 Evaluator - Type 18 Hydrant System Exemption
+ *
+ * From CAS2 Table 2.2 Note 2:
+ * "Not required where the height from Fire and Emergency New Zealand vehicular access
+ * to any floor is less than 15 m and Fire and Emergency New Zealand hose run distance
+ * to any point on any floor is less than 75 m, as measured from Fire and Emergency
+ * New Zealand vehicular access."
+ *
+ * Note: The reference implementation uses escape height < 25m as a simplified check.
+ * This adapts that logic for the firecell structure.
+ *
+ * @param {Object} firecell - Firecell configuration object (applies to all risk groups)
+ * @param {number} [firecell.escapeHeight] - Escape height in meters
+ * @param {Object} buildingParams - Building-level parameters (not used for this simplified check)
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell (always true - universal application)
+ * @returns {boolean} returns.exempt - Whether the firecell is exempt from Type 18 system
+ * @returns {string} returns.reason - Human-readable explanation of the evaluation
+ */
+function evaluateNote2(firecell, buildingParams) {
+  // Note 2 applies to Type 18 systems across all risk groups (universal application)
+
+  // Check exemption condition - escape height must be less than 25m
+  const exempt =
+    typeof firecell.escapeHeight === 'number' &&
+    firecell.escapeHeight >= 0 &&
+    firecell.escapeHeight < 25;
+
+  // Generate appropriate reason message
+  const reason = exempt
+    ? 'Escape height <25m - Type 18 exempt'
+    : 'Type 18 hydrant system required';
+
+  return {
+    applies: true,
+    exempt,
+    reason,
+  };
+}
+
+module.exports = evaluateNote2;

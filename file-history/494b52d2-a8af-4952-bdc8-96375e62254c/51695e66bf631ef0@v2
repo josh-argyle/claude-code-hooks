@@ -1,0 +1,881 @@
+# Note 10 Type 2 Bug Fix - Complete Agent Prompt
+
+## Mission
+You are tasked with fixing a CRITICAL bug in the Note 10 evaluator for the fire safety systems framework. This bug causes incorrect behavior in multi-risk buildings by incorrectly treating manual fire alarms as automatic fire alarms.
+
+**You MUST complete this task autonomously with NO additional questions or context requests.**
+
+---
+
+## Background: Understanding the Fire Safety Systems Framework
+
+### What is Note 10?
+
+Note 10 is part of New Zealand Building Code CAS2 Table 2.2, which governs fire safety systems in buildings. The regulatory text states:
+
+> **Note 10:** "If risk group VP is within a building that is protected with an **automatic fire alarm system**, the risk group VP firecell must have at the minimum a Type 3 system."
+
+**Key Regulatory Concept:**
+- Note 10 applies to **VP (Vehicle Parking)** risk group firecells
+- It creates a **cross-firecell dependency**: When NON-VP firecells have automatic fire alarms, ALL VP firecells must have at least Type 3
+- The critical word is **"automatic"** - only automatic fire alarms trigger this requirement
+
+### Fire Safety System Type Definitions
+
+From the authoritative data file `/api/data/data/fire-safety-systems.js`:
+
+```javascript
+const SYSTEM_TYPE_DEFINITIONS = {
+  1: 'Domestic smoke alarm system',
+  2: 'Manual fire alarm system',                                                      // ← MANUAL
+  3: 'Automatic fire alarm system activated by heat detectors and manual call points',     // ← AUTOMATIC
+  4: 'Automatic fire alarm system activated by smoke detectors and manual call points',    // ← AUTOMATIC
+  5: 'Automatic fire alarm system with modified smoke detection and manual call points',   // ← AUTOMATIC
+  6: 'Automatic fire sprinkler system with manual call points',                           // ← AUTOMATIC
+  7: 'Automatic fire sprinkler system with smoke detectors and manual call points',       // ← AUTOMATIC
+  8: 'Voice communication System',
+  // ... others not relevant to Note 10
+};
+```
+
+**CRITICAL DISTINCTION:**
+- **Type 2 = Manual fire alarm system** - requires human activation (pull stations, manual call points)
+- **Types 3, 4, 5, 6, 7 = Automatic fire alarm systems** - activate automatically via detectors (heat/smoke) or sprinkler flow
+
+**Regulatory Intent:** Note 10 should ONLY trigger when non-VP firecells have automatic detection/activation systems (Types 3, 4, 5, 6, 7), NOT manual-only systems (Type 2).
+
+---
+
+## The Bug
+
+### Location
+File: `/api/processors/fire-safety-systems/note-evaluators/note-10-evaluator.js`
+
+### Current Buggy Code (Line 31)
+```javascript
+const fireAlarmTypes = ['2', '3', '4', '5', '7'];  // ← BUG: Includes Type 2 (manual)
+```
+
+### The Problem
+1. **Line 31** includes `'2'` in the fireAlarmTypes array
+2. **Line 9** JSDoc incorrectly states "automatic fire alarm systems (Types 2, 3, 4, 5, or 7)"
+3. **Line 30** comment says "(manual)" for Type 2, yet includes it in the list
+
+### Why This is Wrong
+
+**Scenario Illustrating the Bug:**
+```javascript
+// Building with two firecells:
+const firecells = [
+  {
+    id: 'CA-1',
+    riskGroup: 'CA',
+    fireSafetySystems: ['2']  // Type 2 = Manual fire alarm ONLY
+  },
+  {
+    id: 'VP-1',
+    riskGroup: 'VP',
+    fireSafetySystems: ['15', '18']  // No fire alarm systems yet
+  }
+];
+
+// Current BUGGY behavior:
+// evaluateNote10(firecells[1], {}, firecells)
+// → { applies: true, requiresMinType3: true, ... }
+// ❌ WRONG! Type 2 is manual, shouldn't trigger Note 10
+
+// Expected CORRECT behavior:
+// evaluateNote10(firecells[1], {}, firecells)
+// → { applies: true, requiresMinType3: false, compliant: true }
+// ✅ CORRECT! Manual alarm doesn't trigger cross-risk requirement
+```
+
+**Real-World Impact:**
+- VP firecells incorrectly required to install Type 3 systems when building only has manual fire alarms
+- Over-specification of fire safety systems (costly but not dangerous)
+- False positive in compliance checking
+
+### Inconsistency in Current Code
+
+Notice line 73 of the same file correctly checks for Type 3 minimum:
+```javascript
+// Line 73: Checking if VP meets Type 3 minimum - correctly excludes Type 2
+return ['3', '4', '5', '7'].includes(systemType);  // No Type 2!
+```
+
+So the code already knows Type 2 shouldn't count for Type 3 equivalence, but line 31 incorrectly includes it when checking OTHER firecells.
+
+---
+
+## The Fix
+
+### Required Code Changes
+
+#### Change 1: Fix the fireAlarmTypes Array (Line 31)
+
+**BEFORE:**
+```javascript
+const fireAlarmTypes = ['2', '3', '4', '5', '7'];
+```
+
+**AFTER:**
+```javascript
+const fireAlarmTypes = ['3', '4', '5', '7'];  // Only automatic fire alarms (exclude Type 2 manual)
+```
+
+#### Change 2: Update JSDoc Comment (Line 9)
+
+**BEFORE:**
+```javascript
+* when OTHER firecells in the building have automatic fire alarm systems (Types 2, 3, 4, 5, or 7).
+```
+
+**AFTER:**
+```javascript
+* when OTHER firecells in the building have automatic fire alarm systems (Types 3, 4, 5, or 7).
+```
+
+#### Change 3: Update Inline Comment (Line 30)
+
+**BEFORE:**
+```javascript
+// Check if OTHER firecells in the building (non-VP) have fire alarm systems
+// Fire alarm system types: 2 (manual), 3 (heat), 4 (smoke), 5 (modified), 7 (sprinkler+smoke)
+const fireAlarmTypes = ['2', '3', '4', '5', '7'];
+```
+
+**AFTER:**
+```javascript
+// Check if OTHER firecells in the building (non-VP) have AUTOMATIC fire alarm systems
+// Automatic fire alarm system types: 3 (heat), 4 (smoke), 5 (modified), 7 (sprinkler+smoke)
+// NOTE: Type 2 (manual) is excluded - Note 10 requires automatic systems only
+const fireAlarmTypes = ['3', '4', '5', '7'];
+```
+
+---
+
+## Required Unit Tests
+
+### Test File to Create
+Create file: `/tests/unit/processors/fire-safety-systems/note-10-evaluator.test.js`
+
+### Test Structure
+Follow the pattern from existing note evaluator tests (see `/tests/unit/processors/fire-safety-systems/note-1d-evaluator.test.js` for reference).
+
+### Required Test Cases
+
+#### 1. Applicability Tests
+- ✅ Should not apply to non-VP risk groups (CA, WB, SM, SI, WS)
+- ✅ Should apply to VP risk group
+
+#### 2. Type 2 Manual Alarm Tests (CRITICAL - The Bug Fix)
+- ✅ **CRITICAL:** Should NOT trigger Note 10 when only Type 2 (manual) alarms present in non-VP firecells
+- ✅ **CRITICAL:** Should NOT add Type 3 requirement to VP when building only has Type 2
+- ✅ Test multi-firecell building: CA with Type 2, VP should remain compliant without Type 3
+
+#### 3. Automatic Alarm Tests (Types 3, 4, 5, 7)
+- ✅ Should trigger Note 10 when Type 3 present in non-VP firecell
+- ✅ Should trigger Note 10 when Type 4 present in non-VP firecell
+- ✅ Should trigger Note 10 when Type 5 present in non-VP firecell
+- ✅ Should trigger Note 10 when Type 7 present in non-VP firecell
+
+#### 4. Cross-Firecell Logic Tests
+- ✅ Should ignore VP firecells when checking for fire alarms (only non-VP trigger)
+- ✅ Should check ALL non-VP firecells in building
+- ✅ Should handle building with multiple VP firecells (all should get same requirement)
+- ✅ Should handle mixed fire alarm types (Type 2 + Type 4 = should trigger because Type 4 is automatic)
+
+#### 5. System Code Parsing Tests
+- ✅ Should handle plain system codes: "2", "3", "4"
+- ✅ Should handle system codes with notes: "2^1a", "4^5", "7^3"
+- ✅ Should handle string and numeric system codes
+
+#### 6. VP Compliance Tests
+- ✅ Should mark VP as compliant when VP has Type 3
+- ✅ Should mark VP as compliant when VP has Type 4 (exceeds Type 3 minimum)
+- ✅ Should mark VP as compliant when VP has Type 5 (exceeds Type 3 minimum)
+- ✅ Should mark VP as compliant when VP has Type 7 (exceeds Type 3 minimum)
+- ✅ Should mark VP as non-compliant when VP only has Type 2
+
+#### 7. No Fire Alarm Scenarios
+- ✅ Should not require Type 3 when building has no fire alarms
+- ✅ Should not require Type 3 when only VP firecells have fire alarms (no non-VP alarms)
+
+#### 8. Edge Cases
+- ✅ Should handle missing fireSafetySystems array
+- ✅ Should handle empty fireSafetySystems array
+- ✅ Should handle undefined allFirecells parameter
+- ✅ Should handle empty allFirecells array
+- ✅ Should handle single-firecell building (VP only)
+
+#### 9. Reason Messages
+- ✅ Should provide clear reason when Note 10 applies and requires Type 3
+- ✅ Should provide clear reason when Note 10 applies but doesn't require Type 3
+- ✅ Should provide clear reason when VP is compliant
+- ✅ Should provide clear reason when VP is non-compliant
+
+---
+
+## Complete Unit Test Implementation
+
+```javascript
+const evaluateNote10 = require('../../../../api/processors/fire-safety-systems/note-evaluators/note-10-evaluator');
+
+describe('Note 10 Evaluator - VP Minimum Type 3 Requirement in Buildings with Automatic Fire Alarms', () => {
+  describe('Applicability', () => {
+    test('should not apply to non-VP risk groups', () => {
+      const nonVPRiskGroups = ['SM', 'SI', 'CA', 'WB', 'WS'];
+
+      nonVPRiskGroups.forEach(riskGroup => {
+        const firecell = { riskGroup };
+        const result = evaluateNote10(firecell, {}, []);
+
+        expect(result.applies).toBe(false);
+      });
+    });
+
+    test('should apply to VP risk group', () => {
+      const firecell = {
+        riskGroup: 'VP',
+        fireSafetySystems: []
+      };
+      const result = evaluateNote10(firecell, {}, [firecell]);
+
+      expect(result.applies).toBe(true);
+    });
+  });
+
+  describe('CRITICAL: Type 2 Manual Alarm Should NOT Trigger Note 10', () => {
+    test('should NOT require Type 3 when only Type 2 (manual) alarms in building', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['2']  // Type 2 = Manual fire alarm
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: ['15', '18']
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);  // ← CRITICAL: Manual alarm should NOT trigger
+      expect(result.compliant).toBe(true);
+      expect(result.reason).toContain('No other firecells have fire alarm systems');
+    });
+
+    test('should NOT require Type 3 when only Type 2 with note annotation', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['2^1b']  // Type 2 with note reference
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should NOT require Type 3 when multiple non-VP firecells only have Type 2', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },
+        { riskGroup: 'WB', fireSafetySystems: ['2'] },
+        { riskGroup: 'SM', fireSafetySystems: ['2'] },
+        { riskGroup: 'VP', fireSafetySystems: ['15'] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+  });
+
+  describe('Automatic Fire Alarms Should Trigger Note 10', () => {
+    test('should require Type 3 when non-VP has Type 3 (automatic heat detector)', () => {
+      const firecells = [
+        {
+          id: 'CA-1',
+          riskGroup: 'CA',
+          fireSafetySystems: ['3']  // Type 3 = Automatic heat detector
+        },
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.reason).toContain('fire alarm systems');
+    });
+
+    test('should require Type 3 when non-VP has Type 4 (automatic smoke detector)', () => {
+      const firecells = [
+        {
+          riskGroup: 'WB',
+          fireSafetySystems: ['4^5']  // Type 4 with note
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when non-VP has Type 5 (automatic modified smoke)', () => {
+      const firecells = [
+        {
+          riskGroup: 'SM',
+          fireSafetySystems: ['5']  // Type 5 = Automatic modified smoke
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when non-VP has Type 7 (automatic sprinkler)', () => {
+      const firecells = [
+        {
+          riskGroup: 'SI',
+          fireSafetySystems: ['7^3']  // Type 7 = Automatic sprinkler
+        },
+        {
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('Mixed Manual and Automatic Alarms', () => {
+    test('should require Type 3 when building has BOTH Type 2 and Type 4', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },     // Manual
+        { riskGroup: 'WB', fireSafetySystems: ['4'] },     // Automatic
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[2], {}, firecells);
+
+      // Should trigger because Type 4 (automatic) is present
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should require Type 3 when any non-VP has automatic (even if others only have manual)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },
+        { riskGroup: 'WB', fireSafetySystems: ['2'] },
+        { riskGroup: 'SM', fireSafetySystems: ['5'] },  // ← This one has automatic
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('Cross-Firecell Logic', () => {
+    test('should ignore VP firecells when checking for fire alarms', () => {
+      const firecells = [
+        {
+          id: 'VP-1',
+          riskGroup: 'VP',
+          fireSafetySystems: ['4']  // VP has Type 4, but shouldn't trigger for itself
+        },
+        {
+          id: 'VP-2',
+          riskGroup: 'VP',
+          fireSafetySystems: []
+        }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should NOT require Type 3 because only VP firecells have alarms
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should check ALL non-VP firecells in building', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'WB', fireSafetySystems: [] },
+        { riskGroup: 'SM', fireSafetySystems: ['4'] },  // ← Only this one has alarm
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[3], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should apply requirement to ALL VP firecells in building', () => {
+      const firecells = [
+        { id: 'CA-1', riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { id: 'VP-1', riskGroup: 'VP', fireSafetySystems: [] },
+        { id: 'VP-2', riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const vp1Result = evaluateNote10(firecells[1], {}, firecells);
+      const vp2Result = evaluateNote10(firecells[2], {}, firecells);
+
+      // Both VP firecells should have same requirement
+      expect(vp1Result.requiresMinType3).toBe(true);
+      expect(vp2Result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('System Code Parsing', () => {
+    test('should handle plain numeric system codes', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle string numeric system codes', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle system codes with note annotations', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4^5'] },  // "4^5" format
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+
+    test('should handle system codes with complex note annotations', () => {
+      const firecells = [
+        { riskGroup: 'SM', fireSafetySystems: ['7^3-9-10'] },  // Multiple notes
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+    });
+  });
+
+  describe('VP Compliance Checking', () => {
+    test('should mark VP as compliant when VP has Type 3', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 4 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 5 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['5'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as compliant when VP has Type 7 (exceeds Type 3)', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['7'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should mark VP as non-compliant when VP only has Type 2', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['2'] }  // Only manual alarm
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(false);
+    });
+
+    test('should mark VP as non-compliant when VP has no fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['15', '18'] }  // Other systems, no alarms
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(true);
+      expect(result.compliant).toBe(false);
+    });
+  });
+
+  describe('No Fire Alarm Scenarios', () => {
+    test('should not require Type 3 when building has no fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['9', '15', '18'] },  // No fire alarms
+        { riskGroup: 'WB', fireSafetySystems: ['15', '18'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[2], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+      expect(result.compliant).toBe(true);
+    });
+
+    test('should not require Type 3 when only VP firecells have fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }  // VP has alarm, but doesn't trigger for itself
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('should handle missing fireSafetySystems array', () => {
+      const firecells = [
+        { riskGroup: 'CA' },  // No fireSafetySystems property
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle empty fireSafetySystems array', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: [] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle undefined allFirecells parameter', () => {
+      const firecell = { riskGroup: 'VP', fireSafetySystems: [] };
+      const result = evaluateNote10(firecell, {}, undefined);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle empty allFirecells array', () => {
+      const firecell = { riskGroup: 'VP', fireSafetySystems: [] };
+      const result = evaluateNote10(firecell, {}, []);
+
+      expect(result.applies).toBe(true);
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle single-firecell building (VP only)', () => {
+      const firecells = [
+        { riskGroup: 'VP', fireSafetySystems: ['4'] }
+      ];
+
+      const result = evaluateNote10(firecells[0], {}, firecells);
+
+      // VP is only firecell, so no non-VP firecells to trigger requirement
+      expect(result.requiresMinType3).toBe(false);
+    });
+
+    test('should handle invalid system code format', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['invalid-code'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should gracefully handle invalid codes
+      expect(result.applies).toBe(true);
+    });
+
+    test('should handle non-array fireSafetySystems', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: '4' },  // String instead of array
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should handle gracefully (current code checks Array.isArray)
+      expect(result.applies).toBe(true);
+    });
+  });
+
+  describe('Reason Messages', () => {
+    test('should provide clear reason when building has automatic fire alarms', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.reason).toBeDefined();
+      expect(result.reason).toContain('fire alarm systems');
+      expect(result.reason).toContain('Type 3');
+    });
+
+    test('should provide clear reason when no automatic fire alarms present', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['15'] },
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      expect(result.reason).toContain('No other firecells');
+      expect(result.reason).toContain('no Type 3 requirement');
+    });
+
+    test('should provide clear reason when only manual alarms present', () => {
+      const firecells = [
+        { riskGroup: 'CA', fireSafetySystems: ['2'] },  // Manual only
+        { riskGroup: 'VP', fireSafetySystems: [] }
+      ];
+
+      const result = evaluateNote10(firecells[1], {}, firecells);
+
+      // Should treat manual alarms as "no fire alarm systems" for Note 10 purposes
+      expect(result.reason).toContain('No other firecells');
+    });
+  });
+
+  describe('Regression Tests', () => {
+    test('should maintain consistent behavior with existing cross-firecell notes', () => {
+      // This test ensures Note 10 behaves consistently with other cross-firecell notes
+      // like Note 9 (VP ventilation) in terms of checking ALL firecells
+
+      const firecells = [
+        { id: 'CA-1', riskGroup: 'CA', fireSafetySystems: ['4'] },
+        { id: 'WB-1', riskGroup: 'WB', fireSafetySystems: [] },
+        { id: 'VP-1', riskGroup: 'VP', fireSafetySystems: [] },
+        { id: 'VP-2', riskGroup: 'VP', fireSafetySystems: ['3'] }
+      ];
+
+      const vp1Result = evaluateNote10(firecells[2], {}, firecells);
+      const vp2Result = evaluateNote10(firecells[3], {}, firecells);
+
+      // Both VP firecells should see CA's Type 4 and require Type 3
+      expect(vp1Result.requiresMinType3).toBe(true);
+      expect(vp2Result.requiresMinType3).toBe(true);
+
+      // VP-2 is compliant (has Type 3), VP-1 is not
+      expect(vp1Result.compliant).toBe(false);
+      expect(vp2Result.compliant).toBe(true);
+    });
+  });
+});
+```
+
+---
+
+## Verification Steps
+
+After implementing the fix and tests:
+
+### 1. Run the Unit Tests
+```bash
+npm test -- note-10-evaluator.test.js
+```
+
+**Expected Output:**
+- All tests should pass (50+ tests)
+- Pay special attention to the "CRITICAL: Type 2 Manual Alarm Should NOT Trigger Note 10" section
+
+### 2. Run Full Test Suite
+```bash
+npm test
+```
+
+**Expected Output:**
+- All existing tests should still pass (493+ tests)
+- New Note 10 tests added (50+ tests)
+- Total: ~550+ tests passing
+
+### 3. Spot Check with Manual Testing
+
+Create a test script to verify the fix:
+
+```javascript
+// manual-test-note10.js
+const evaluateNote10 = require('./api/processors/fire-safety-systems/note-evaluators/note-10-evaluator');
+
+console.log('=== Note 10 Bug Fix Verification ===\n');
+
+// Test 1: Type 2 (manual) should NOT trigger
+const test1Firecells = [
+  { riskGroup: 'CA', fireSafetySystems: ['2'] },
+  { riskGroup: 'VP', fireSafetySystems: [] }
+];
+const test1Result = evaluateNote10(test1Firecells[1], {}, test1Firecells);
+console.log('Test 1 - Type 2 manual alarm:');
+console.log(`  Should NOT require Type 3: ${test1Result.requiresMinType3 === false ? '✅ PASS' : '❌ FAIL'}`);
+console.log(`  Result:`, test1Result);
+console.log('');
+
+// Test 2: Type 4 (automatic) SHOULD trigger
+const test2Firecells = [
+  { riskGroup: 'CA', fireSafetySystems: ['4'] },
+  { riskGroup: 'VP', fireSafetySystems: [] }
+];
+const test2Result = evaluateNote10(test2Firecells[1], {}, test2Firecells);
+console.log('Test 2 - Type 4 automatic alarm:');
+console.log(`  Should require Type 3: ${test2Result.requiresMinType3 === true ? '✅ PASS' : '❌ FAIL'}`);
+console.log(`  Result:`, test2Result);
+console.log('');
+
+// Test 3: Mixed Type 2 + Type 4 should trigger (because of Type 4)
+const test3Firecells = [
+  { riskGroup: 'CA', fireSafetySystems: ['2'] },
+  { riskGroup: 'WB', fireSafetySystems: ['4'] },
+  { riskGroup: 'VP', fireSafetySystems: [] }
+];
+const test3Result = evaluateNote10(test3Firecells[2], {}, test3Firecells);
+console.log('Test 3 - Mixed Type 2 + Type 4:');
+console.log(`  Should require Type 3: ${test3Result.requiresMinType3 === true ? '✅ PASS' : '❌ FAIL'}`);
+console.log(`  Result:`, test3Result);
+```
+
+Run it:
+```bash
+node manual-test-note10.js
+```
+
+---
+
+## Success Criteria
+
+Before considering this task complete, verify ALL of the following:
+
+- [ ] Line 31 of note-10-evaluator.js: `const fireAlarmTypes = ['3', '4', '5', '7'];` (Type 2 removed)
+- [ ] Line 9 JSDoc updated to remove "Types 2" reference
+- [ ] Line 30 comment updated to clarify "automatic only"
+- [ ] Test file created at `/tests/unit/processors/fire-safety-systems/note-10-evaluator.test.js`
+- [ ] All 50+ unit tests pass
+- [ ] All existing tests still pass (493+)
+- [ ] CRITICAL test passes: Type 2 does NOT trigger Note 10
+- [ ] All automatic alarms (3, 4, 5, 7) DO trigger Note 10
+- [ ] Cross-firecell logic works correctly (VP ignores other VP firecells)
+- [ ] No linting errors (per project CLAUDE.md)
+- [ ] Manual verification script confirms fix
+
+---
+
+## Additional Context
+
+### Project Standards (from CLAUDE.md)
+- Server runs on port 3000 - DO NOT stop/restart it
+- NEVER mark anything as done when it wasn't
+- NEVER use `--no-verify` to bypass linting
+- Test-driven development - tests must pass
+- Follow existing code patterns
+
+### Related Files You May Reference (But DO NOT Modify)
+- `/api/data/data/fire-safety-systems.js` - System type definitions (lines 1-22)
+- `/api/processors/fire-safety-systems/calculator.js` - How evaluators are called
+- `/tests/unit/processors/fire-safety-systems/note-1d-evaluator.test.js` - Test pattern reference
+
+### Files to Modify
+1. `/api/processors/fire-safety-systems/note-evaluators/note-10-evaluator.js` (3 small changes)
+
+### Files to Create
+1. `/tests/unit/processors/fire-safety-systems/note-10-evaluator.test.js` (complete test suite)
+
+---
+
+## Estimated Time
+- Code fix: 5 minutes (3 simple changes)
+- Test creation: 45-60 minutes (comprehensive test suite)
+- Verification: 10 minutes (run tests, manual checks)
+- **Total: ~1 hour**
+
+---
+
+## Final Notes
+
+This bug was discovered during a comprehensive validation of the fire safety systems framework against CAS2 regulatory requirements. It's a simple fix (removing one character from an array), but has significant implications for multi-risk buildings with manual fire alarm systems.
+
+The fix is LOW RISK because:
+- It makes the code MORE conservative (fewer false positives)
+- It aligns with regulatory intent ("automatic" fire alarms)
+- Existing correct behavior is preserved (automatic alarms still trigger Note 10)
+- The only change is excluding manual alarms, which shouldn't have triggered anyway
+
+**YOU MUST COMPLETE THIS TASK AUTONOMOUSLY. DO NOT ASK FOR ADDITIONAL CONTEXT.**
+
+Good luck! 🚀

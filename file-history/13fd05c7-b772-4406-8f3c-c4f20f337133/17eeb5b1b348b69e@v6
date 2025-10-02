@@ -1,0 +1,360 @@
+extends layout
+
+block content
+  header.document-header
+    h1= title
+    p 02 October 2025
+
+  div
+    button#fillTestData(type="button") Fill Test Data
+    button#fillAndSubmit(type="button", style="margin-left: 10px;") Fill & Submit
+
+  form#projectForm(method="post", action="/process")
+
+    // C/AS2 Scope Validation (Para 1.1.2)
+    fieldset.section-container
+      legend C/AS2 Scope Confirmation
+      p.help-text(style="font-style: italic; color: #666; margin-bottom: 15px;")
+        | This compliance pathway (C/AS2) is NOT suitable for buildings with complex features.
+        | Please confirm your building does NOT have any of the following:
+
+      ul(style="margin-left: 20px; margin-bottom: 15px; color: #444;")
+        li Atriums
+        li Prison facilities
+        li Recreation centres with tiered seating for more than 2000 people
+        li Non-limited intermediate floors
+        li More than 20 storeys above ground
+        li
+          | Building features requiring a stay-in-place evacuation strategy (C/AS2 does not provide for these):
+          ul(style="margin-left: 20px; margin-top: 5px;")
+            li Operating theatres
+            li Intensive care units
+            li Hyperbaric chambers
+            li Delivery rooms
+            li Recovery rooms
+
+      p
+        | If your building has any of these features, alternative compliance methods are required.
+
+      div
+        label(for="confirmedNoComplexFeatures" style="display: flex; align-items: center; gap: 10px;")
+          input#confirmedNoComplexFeatures(type="checkbox", name="confirmedNoComplexFeatures", required)
+          span I confirm this building does NOT have any of the complex features listed above (Required)
+
+    // Project-level fields
+    fieldset.section-container
+      legend Project Information
+      p.help-text(style="font-style: italic; color: #666; margin-bottom: 15px;")
+        | This information will appear on the Fire Safety Compliance Document header.
+
+      div
+        label(for="projectName") Project Name:
+        input#projectName(
+          type="text",
+          name="projectName",
+          required,
+          placeholder="e.g., Marina Bay Apartments",
+          title="Official project name for the compliance document"
+        )
+
+      div
+        label(for="clientName") Client Name:
+        input#clientName(
+          type="text",
+          name="clientName",
+          required,
+          placeholder="e.g., John Smith or ABC Development Ltd",
+          title="Name of the client commissioning this fire safety report"
+        )
+
+      div
+        label(for="clientAddress") Client Address:
+        textarea#clientAddress(
+          name="clientAddress",
+          rows="3",
+          required,
+          placeholder="e.g., 123 Main Street&#10;Auckland Central&#10;Auckland 1010",
+          title="Full postal address of the client"
+        )
+        p.help-text(style="font-size: 0.9em; color: #666; margin-top: 5px;")
+          | Enter address on multiple lines as it should appear on the document.
+
+      div
+        label(for="hasRemoteReceivingCentreConnection") Has Remote Receiving Centre Connection:
+        select#hasRemoteReceivingCentreConnection(name="hasRemoteReceivingCentreConnection")
+          option(value="") -- Select --
+          option(value="true") Yes
+          option(value="false") No
+
+      div
+        label(for="storesHazardousGoods") Stores Hazardous Goods:
+        select#storesHazardousGoods(name="storesHazardousGoods")
+          option(value="") -- Select --
+          option(value="true") Yes
+          option(value="false") No
+
+    // Building vertical structure
+    fieldset.section-container
+      legend Building Vertical Structure
+
+      div(style="display: flex; gap: 20px; margin-bottom: 15px;")
+        div(style="flex: 1;")
+          label(for="numberOfFloorsAboveGround") Floors Above Ground:
+          input#numberOfFloorsAboveGround(type="number", name="numberOfFloorsAboveGround", min="0", max="50", value="0", required, title="Number of floors above ground level (not including ground floor itself). Example: 3 means Ground + 1st + 2nd + 3rd floor.")
+
+        div(style="flex: 1;")
+          label(for="numberOfBasementLevels") Basement Levels:
+          input#numberOfBasementLevels(type="number", name="numberOfBasementLevels", min="0", max="10", value="0", required, title="Number of basement levels below ground. Example: 2 means B1 and B2.")
+
+    // Firecells section
+    fieldset.section-container
+      legend Firecells
+
+      div#firecellsContainer
+        // Initial firecell
+        div.firecell-item(data-index="0")
+          h3 Firecell 1
+
+          div
+            label Risk Group:
+            select(name="firecells[0][riskGroup]", required, onchange="toggleConditionalFields(this)")
+              option(value="") -- Select Risk Group --
+              each riskGroup in riskGroups
+                option(value=riskGroup)= riskGroup
+
+          // SM/SI: Sleeping occupant type dropdown (4 options)
+          div.sleeping-occupant-type(style="display: none;")
+            label Sleeping Occupant Type:
+            select(name="firecells[0][sleepingOccupantType]", required)
+              option(value="") -- Select Occupant Type --
+              option(value="permanent") Permanent Accommodation (apartments, boarding houses)
+              option(value="transient") Transient Accommodation (hotels, motels, hostels)
+              option(value="education") Educational Accommodation (boarding schools, university halls)
+              option(value="careOrDetention") Care or Detention (hospitals, prisons, aged care)
+            p.help-text(style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px;")
+              | This determines which fire safety systems are required per CAS2 Table 2.2
+
+          //- NEW: NZS 4515 Substitution Option (SM education and SI only)
+          div.nzs-4515-option(style="display: none;")
+            fieldset(style="border: 2px solid #1976d2; padding: 15px; margin: 15px 0; background-color: #e3f2fd;")
+              legend(style="font-weight: bold; color: #1565c0;") NZS 4515 Sprinkler Substitution (C/AS2 Para 2.2.3)
+
+              p.info-message(style="font-style: italic; color: #0d47a1; margin-bottom: 15px; line-height: 1.5;")
+                | For SM educational accommodation and SI care/detention, the Type 7 sprinkler
+                | component may be substituted with NZS 4515 life protection sprinklers if the
+                | building is within NZS 4515 scope (total floor area ≤2000m²).
+
+              div(style="margin-bottom: 15px; padding: 10px; background-color: white; border-radius: 4px;")
+                label(style="font-weight: bold; color: #1565c0;")
+                  | Is this building within NZS 4515 scope?
+                p.help-text(style="font-size: 0.9em; color: #666; margin: 5px 0 10px 0;")
+                  | Calculate total floor area of ALL firecells in the building.
+                  | NZS 4515 basic scope: ≤500m² (≤3 storeys). Extended scope: ≤2000m² (≤4 storeys)
+                  strong  requires
+                  |  60-min water supply, fire brigade alarm, and fire sprinkler inlet per NZS 4515:2009 Section 1.1.3.2.
+                select.nzs-4515-scope-select(name="isWithinNZS4515Scope")
+                  option(value="") -- Select --
+                  option(value="true") Yes - Total building floor area ≤2000m² (with extended provisions if >500m²)
+                  option(value="false") No - Total building floor area >2000m²
+
+              div.nzs-4515-substitution-choice(style="display: none; margin-top: 15px; padding: 15px; background-color: #c8e6c9; border-radius: 4px;")
+                label(style="display: flex; align-items: center; gap: 10px; cursor: pointer;")
+                  input(type="checkbox", name="firecells[0][usesNZS4515Sprinklers]", value="true", style="width: 20px; height: 20px;")
+                  span(style="font-weight: bold; color: #2e7d32;")
+                    | ✓ Use NZS 4515 sprinklers instead of Type 7
+                p.help-text(style="font-size: 0.85em; color: #1b5e20; margin: 10px 0 0 30px; line-height: 1.4;")
+                  | Check this box to use NZS 4515 life protection sprinklers.
+                  | If unchecked, Type 7 system will be required.
+                  | This substitution is compliant with C/AS2 Paragraph 2.2.3.
+
+          // WB: Activity Type (REQUIRED for Table 1.1 compliance)
+          div.wb-only(style="display: none;")
+            label WB Activity Type:
+              span.required-indicator  *
+            select(name="firecells[0][wbActivityType]", required)
+              option(value="", selected) -- Select Activity Type --
+              option(value="professional") Professional (Offices, laboratories, workshops)
+              option(value="industrial") Industrial (Factories, manufacturing)
+              option(value="storage") Storage (Warehouses, general storage)
+              option(value="temperatureControlled") Temperature Controlled Storage
+              option(value="intermittent") Intermittent (Aircraft hangers, fixed plant)
+            p.help-text(style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px; line-height: 1.4;")
+              | Determines storage height limits per CAS2 Table 1.1:
+              br
+              strong Professional/Industrial:
+              | Storage < 3.0m only •
+              strong Storage:
+              | ≤5.0m (no limit) OR 5.0m-8.0m (≤4200m² total)
+              br
+              strong Temperature Controlled:
+              | <3.0m OR 3.0m-5.0m (≤500m² limited areas) •
+              strong Intermittent:
+              | No specific restrictions
+
+          // CA/WB/WS/VP: Occupant density activity dropdown (50+ options)
+          div.other-occupant-type
+            label Occupant Density Activity:
+            select(name="firecells[0][occupantType]", required)
+              option(value="") -- Select Activity Type --
+              each occupantType in occupantTypes
+                option(value=occupantType)= occupantType
+
+          // SM/SI: Show "Bed Spaces" input (manual entry)
+          div.sm-si-only(style="display: none;")
+            label Bed Spaces:
+            input.bed-spaces-input(type="number", name="firecells[0][occupantLoad]", min="0", step="1", title="Number of beds (accounts for staff and visitors per CAS2 1.4.5)", placeholder="e.g., 10 beds")
+
+          div
+            label Escape Height (m):
+            input(type="number", name="firecells[0][escapeHeight]", min="0", step="0.1", required)
+
+          div
+            label Is Sprinklered:
+            select(name="firecells[0][isSprinklered]", required)
+              option(value="") -- Select --
+              option(value="true") Yes
+              option(value="false") No
+
+          div
+            label Installed Fire Safety Systems:
+            select.installed-systems-select
+              option(value="", selected, disabled) -- Select a system to add --
+              option(value="none") No systems installed
+              optgroup(label="Primary Fire Detection & Alarm Systems")
+                option(value="1") Type 1 - Domestic smoke alarm system
+                option(value="2") Type 2 - Manual fire alarm system
+                option(value="3") Type 3 - Auto fire alarm (heat detectors + manual call points)
+                option(value="4") Type 4 - Auto fire alarm (smoke detectors + manual call points)
+                option(value="5") Type 5 - Auto fire alarm (modified smoke detection + manual call points)
+              optgroup(label="Sprinkler Systems")
+                option(value="6") Type 6 - Auto sprinkler system with manual call points
+                option(value="7") Type 7 - Auto sprinkler with smoke detectors + manual call points
+                option(value="NZS-4515") NZS 4515 - Fire sprinkler for life safety in sleeping occupancies
+              optgroup(label="Smoke Management Systems")
+                option(value="8") Type 8 - Voice communication system
+                option(value="9") Type 9 - Smoke control handling system
+                option(value="10") Type 10 - Natural smoke venting
+                option(value="11") Type 11 - Mechanical smoke extract
+                option(value="13") Type 13 - Pressurisation of safe path
+              optgroup(label="Auxiliary Fire Safety Systems")
+                option(value="14") Type 14 - Fire hose reel
+                option(value="15") Type 15 - Fire service lift control
+                option(value="16") Type 16 - Emergency lighting in exitways
+                option(value="17") Type 17 - Emergency electrical power supply
+                option(value="18") Type 18 - Fire hydrant system
+                option(value="19") Type 19 - Refuge areas
+                option(value="20") Type 20 - Fire systems centre
+
+            div.fire-safety-chips-container
+
+            div.fire-safety-hidden-inputs
+
+          div
+            label Floor Area (m²):
+            input(type="number", name="firecells[0][floorArea]", min="0.1", step="0.1", required)
+
+          div
+            label Floor:
+            select.firecell-floor(name="firecells[0][floor]", required, title="Select which floor this firecell is located on. Required for single-level building checks (Notes 1b and 1c).")
+              option(value="") -- Select Floor --
+
+          // Escape Route Configuration
+          fieldset.escape-routes-config
+            legend Escape Route Configuration
+            p.help-text(style="font-style: italic; color: #666; margin-bottom: 10px;")
+              | Based on your building's architectural drawings and CAS2 Table 3.1 requirements.
+
+            div
+              label Number of Escape Routes:
+              input.route-count(type="number", name="firecells[0][numberOfEscapeRoutes]", min="1", max="10", required, title="Total number of escape routes from this firecell per CAS2 Table 3.1")
+              span.required-routes-hint(style="margin-left: 10px; color: #666; font-style: italic;")
+                | (CAS2 Table 3.1 requires:
+                span.min-routes -
+                |  routes for this occupant load)
+
+            // SM/SI: Maximum beds per route
+            div.sm-si-route-distribution(style="display: none;")
+              label Maximum Beds on Largest Escape Route:
+              input(type="number", name="firecells[0][maxEscapeRouteBeds]", min="0", title="The highest number of beds served by any single escape route", placeholder="e.g., 10 beds")
+              p.help-text(style="font-size: 0.9em; color: #666; margin-top: 5px;")
+                | If routes serve different numbers of beds, enter the LARGEST number served by any one route.
+                br
+                | Example: Route A serves 10 beds, Route B serves 8 beds → Enter 10
+
+            // CA/WB/WS/VP: Maximum occupants per route
+            div.other-route-distribution(style="display: none;")
+              label Maximum Occupants on Largest Escape Route:
+              input(type="number", name="firecells[0][maxEscapeRouteOccupants]", min="0", title="The highest number of occupants served by any single escape route", placeholder="e.g., 50 occupants")
+              p.help-text(style="font-size: 0.9em; color: #666; margin-top: 5px;")
+                | If routes serve different numbers of occupants, enter the LARGEST number served by any one route.
+
+          // Conditional fields for VP risk group
+          div.vp-only(style="display: none;")
+            label Has Vehicle Stacker:
+            select(name="firecells[0][hasVehicleStacker]")
+              option(value="") -- Select --
+              option(value="true") Yes
+              option(value="false") No
+
+          // Conditional fields for CA risk group
+          div.ca-only(style="display: none;")
+            label Is Cinema or Theatre:
+            select(name="firecells[0][isCinemaOrTheatre]")
+              option(value="") -- Select --
+              option(value="true") Yes
+              option(value="false") No
+
+            div
+              label Is Early Childhood Centre:
+              select.early-childhood-toggle(name="firecells[0][isEarlyChildhoodCentre]")
+                option(value="") -- Select --
+                option(value="true") Yes
+                option(value="false") No
+
+          // WB/VP: Distance from boundary (conditional display)
+          div.wb-vp-boundary(style="display: none;")
+            label Distance from Nearest Relevant Boundary:
+            select(name="firecells[0][distanceFromBoundary15mOrMore]")
+              option(value="") -- Select --
+              option(value="true") 15 metres or greater
+              option(value="false") Less than 15 metres
+            p.help-text(style="font-style: italic; color: #666; margin-top: 5px;")
+              | Relevant boundary per C/AS2 Section 1.3. For WB/VP unsprinklered ≥5000m²,
+              | unlimited floor area permitted when ≥15m from boundary (Table 2.1 Note 2).
+              | Also affects fire resistance ratings (Table 2.4 Note 2).
+
+          // Conditional fields for CA early childhood centres - Condition (a): Escape height ≤ 2.0m
+          div.early-childhood-low-height(style="display: none;")
+            p.info-message(style="font-style: italic; color: #666; margin: 10px 0;") CAS2 2.2.4(a) - Single storey early childhood centre requirements
+
+            div
+              label Has Dedicated Sleeping Areas:
+              select.sleeping-areas-toggle(name="firecells[0][hasDedicatedSleepingAreas]")
+                option(value="") -- Select --
+                option(value="true") Yes
+                option(value="false") No
+
+            div.sleeping-area-fields(style="display: none;")
+              label(title="Required for dedicated sleeping areas in single-storey early childhood centres per NZS 4512") Supplementary smoke detectors compliant with NZS 4512:
+              select(name="firecells[0][supplementarySmokeDetectorsCompliant]")
+                option(value="") -- Select --
+                option(value="true") Yes - Compliant
+                option(value="false") No - Non-compliant
+
+          // Conditional fields for CA early childhood centres - Condition (b): Escape height > 2.0m
+          div.early-childhood-high-height(style="display: none;")
+            div
+              label(title="Two separate places of safety with fire separations and direct access to safe path/final exit per CAS2 2.2.4(b)(ii)&(iii)") Two separate places of safety with fire separations and direct access:
+              select(name="firecells[0][placesOfSafetyCompliant]")
+                option(value="") -- Select --
+                option(value="true") Yes - Compliant
+                option(value="false") No - Non-compliant
+
+          button.remove-firecell(type="button", style="display: none;") Remove Firecell
+
+      div
+        button#addFirecell(type="button") Add Another Firecell
+
+    div
+      button(type="submit") Process Project
+

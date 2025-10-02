@@ -1,0 +1,41 @@
+const express = require('express');
+const router = express.Router();
+const feedbackController = require('../controllers/feedbackController');
+const { requireAuth, requireRoles } = require('../middleware/authMiddleware');
+
+/**
+ * @route GET /api/feedback
+ * @description Get all feedback submissions
+ * @access Private - Admin only
+ * @returns {Array} List of feedback objects
+ */
+router.get('/', requireAuth, requireRoles(['admin']), feedbackController.getAllFeedback);
+
+/**
+ * @route POST /api/feedback
+ * @description Create new feedback submission
+ * @access Private - Any authenticated user
+ * @returns {Object} Created feedback object
+ */
+router.post('/', requireAuth, feedbackController.createFeedback);
+
+/**
+ * @route PUT /api/feedback/:id/status
+ * @description Update feedback status
+ * @access Private - Admin only
+ * @param {string} id - Feedback ID
+ * @returns {Object} Updated feedback object
+ */
+router.put('/:id/status', requireAuth, requireRoles(['admin']), feedbackController.updateFeedbackStatus);
+
+/**
+ * @route POST /api/feedback/respond
+ * @description Respond to a feedback report (sends notification to reporter)
+ * @access Private - Admin only
+ * @param {string} feedback_id - The feedback report ID (in request body)
+ * @param {string} response_message - The response message (in request body)
+ * @returns {Object} Success confirmation
+ */
+router.post('/respond', requireAuth, requireRoles(['admin']), feedbackController.respondToFeedback);
+
+module.exports = router;

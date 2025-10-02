@@ -1,0 +1,57 @@
+const {
+  createInfoParagraph,
+  createWarningParagraph,
+  createComplianceParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Adapted from reference documents for C/AS2 compliance
+ */
+const TEXT = {
+  SECTION_TITLE: "Hazardous Substances",
+
+  regulatory_notice: {
+    content: "C/AS2 does not include regulations for when hazardous substances will be stored, used or processed in the building. Compliance with NZBC Clause F3, the Hazardous Substances and New Organisms Act 1996, and the Health and Safety at Work (Hazardous Substances) Regulations 2017 shall also be ensured where applicable in addition to the requirements of this Acceptable Solution."
+  },
+
+  stores_yes: {
+    content: "The client acknowledges this and has confirmed that the proposed building will be used to store, use or process hazardous substances. They are aware of the responsibilities they have to ensure the proposed building complies with relevant regulations beyond this document."
+  },
+
+  stores_no: {
+    content: "The client acknowledges this and has confirmed that the proposed building will not be used to store, use or process hazardous substances."
+  }
+};
+
+/**
+ * Generate compliance paragraphs for hazardous substances
+ * @param {ProjectModel} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateComplianceParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // Combine regulatory notice with client acknowledgment
+  const storesGoods = projectModel.storesHazardousGoods === true || projectModel.storesHazardousGoods === 'true';
+  const doesNotStore = projectModel.storesHazardousGoods === false || projectModel.storesHazardousGoods === 'false';
+
+  let content = TEXT.regulatory_notice.content;
+
+  if (storesGoods) {
+    content += ' ' + TEXT.stores_yes.content;
+  } else if (doesNotStore) {
+    content += ' ' + TEXT.stores_no.content;
+  }
+
+  paragraphs.push(
+    createInfoParagraph(
+      TEXT.SECTION_TITLE,
+      content
+    )
+  );
+
+  return paragraphs;
+}
+
+module.exports = { generateComplianceParagraphs };

@@ -1,0 +1,1548 @@
+include includes/icon
+include includes/modal
+include includes/new-modal
+include includes/nav-tabs
+include includes/nav-tabs-enhanced
+include includes/floating-input
+include includes/floating-checkbox
+include includes/search-select
+include includes/search-multi-select
+include includes/multi-select-with-options
+include includes/status-badge
+include includes/reset-search-btn
+include includes/back-to-top
+include includes/loading-spinner
+include includes/waiting-spinner
+include includes/subscribe-button
+include includes/conversations-vue
+include includes/notifications
+include includes/notifications-vue
+
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport", content="width=device-width, initial-scale=1.0")
+    title #{title ? title + ' - ' + siteName : siteName}
+    link(rel="preconnect", href="https://fonts.googleapis.com")
+    link(rel="preconnect", href="https://fonts.gstatic.com", crossorigin)
+    link(href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;600;700&display=swap", rel="stylesheet")
+    link(rel="stylesheet", href=`/css/base-styles.css?v=${appVersion}`)
+    link(rel="stylesheet", href=`/css/pdfs.css?v=${appVersion}`)
+    link(rel="stylesheet", href=`/css/notifications-vue.css?v=${appVersion}`)
+    block styles
+    script(src=`/js/logger.js?v=${appVersion}`)
+    script(src=`/js/icons.js?v=${appVersion}`)
+    script(src=`/js/utils.js?v=${appVersion}`)
+    script(src=`/js/apiClient.js?v=${appVersion}`)
+    script(src=`/js/formValidator.js?v=${appVersion}`)
+    script(src=`/js/loadingManager.js?v=${appVersion}`)
+    - var vueScript = process.env.NODE_ENV === 'production' ? "https://unpkg.com/vue@3/dist/vue.global.prod.js" : "https://unpkg.com/vue@3/dist/vue.global.js"
+    script(src=vueScript)
+    script(src="/socket.io/socket.io.js")
+    script(src=`/js/conversations-vue.js?v=${appVersion}`)
+    script(src=`/js/notifications-vue.js?v=${appVersion}`)
+    script(src=`/js/subscribe-button.js?v=${appVersion}`)
+    script(src=`/js/dateUtils.js?v=${appVersion}`)
+    script(src=`/js/chartColors.js?v=${appVersion}`)
+    script(src="https://cdn.jsdelivr.net/npm/marked/marked.min.js")
+    block head
+  body
+    // Development warning watermark
+    if devWarningMessage
+      .dev-watermark-overlay
+        - var messageRepeat = devWarningMessage + ' '
+        - var fullMessage = messageRepeat.repeat(100)
+        span= fullMessage
+      style.
+        .dev-watermark-overlay {
+          position: fixed;
+          top: -50%;
+          left: -50%;
+          width: 200%;
+          height: 200%;
+          font-size: 24px;
+          font-weight: 600;
+          color: rgba(255, 0, 0, 0.08);
+          transform: rotate(-45deg);
+          pointer-events: none;
+          z-index: 9999;
+          line-height: 2;
+          word-wrap: break-word;
+          white-space: pre-wrap;
+          overflow: hidden;
+          font-family: 'Roboto', sans-serif;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+        }
+    
+    // Notifications Vue Panel
+    +notifications-vue()
+    
+    // Panel overlay for mobile
+    .panel-overlay#panel-overlay
+
+    // AI Chat Panel Container
+    .ai-panel-container#ai-panel-container
+      // AI Toggle Button
+      button.toggle-btn.ai-toggle#ai-toggle
+        | AI
+      // AI Chat Panel
+      .ai-panel#ai-panel
+        .ai-panel-resize-handle#ai-panel-resize-handle
+          .ai-panel-resize-dots
+            .resize-dot
+            .resize-dot
+            .resize-dot
+        .ai-panel-header
+          .ai-panel-controls
+            button.ai-history-btn#ai-history-btn(title="Previous Conversations")
+              svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+                path(d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z")
+            button.ai-new-btn#ai-new-btn(title="New Chat")
+              svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+                line(x1="12" y1="5" x2="12" y2="19")
+                line(x1="5" y1="12" x2="19" y2="12")
+            button.btn-close#ai-close
+              svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+                path(d="M18 6 6 18")
+                path(d="m6 6 12 12")
+          h3(style="font-weight: 400;") AI Assistant
+        .ai-chat-container
+          .ai-history-panel#ai-history-panel
+            .ai-history-header
+              h4 Previous Conversations
+              button.btn-small#ai-history-close ×
+            .ai-history-list#ai-history-list
+              .ai-history-loading Loading conversations...
+          .ai-messages#ai-messages
+            .ai-message.assistant
+              .ai-message-content Welcome! How can I help you today?
+          .ai-input-area
+            // Model selector and token info for authenticated users
+            if locals.session && locals.session.userId
+              .ai-controls-row
+                if locals.session.roles && (locals.session.roles.includes('project_manager') || locals.session.roles.includes('admin'))
+                  .ai-model-selector
+                    select.ai-model-select#ai-model-select
+                      option(value="") Loading models...
+                .ai-token-info#ai-token-info
+                  span.token-label Tokens: 
+                  span.token-value#token-value Loading...
+            .ai-input-container
+              textarea.ai-textarea#ai-input(placeholder="Type your message...")
+              button.ai-send-btn#ai-send
+                +icon('send')
+    
+    // Navigation Panel Container
+    .nav-panel-container#nav-panel-container
+      // Navigation Toggle Button  
+      button.toggle-btn.nav-toggle#nav-toggle
+        | ☰
+      // Navigation Panel
+      .nav-panel#nav-panel
+        .nav-panel-header
+          h3(style="font-weight: 400;") Navigation
+          button.btn-close#nav-close
+            svg(xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round")
+              path(d="M18 6 6 18")
+              path(d="m6 6 12 12")
+        .nav-panel-content
+          //- Use dynamic navigation if available, otherwise fall back to hardcoded
+          if dynamicNavEnabled && userNavigation
+            //- Dynamic navigation from middleware
+            each section, sectionKey in userNavigation
+              if section.visible && section.items && section.items.length > 0
+                .nav-section(class=sectionKey === 'development' ? 'development' : '')
+                  h4= section.label
+                  each item in section.items
+                    a.nav-link(href=item.path)= item.label
+          else
+            //- IMPORTANT: Navigation should NOT be hardcoded here!
+            //- 
+            //- To add or modify navigation items:
+            //- 1. Edit /api/config/routePermissions.js
+            //- 2. Add your route configuration with:
+            //-    - path: the route path
+            //-    - roles: array of roles (empty [] = any authenticated user)
+            //-    - label: the display text
+            //-    - section: which navigation section it belongs to
+            //-    - showInNav: true to display in navigation
+            //-    - icon: icon name (optional)
+            //- 
+            //- Example:
+            //-   '/my-new-page': {
+            //-     roles: [],
+            //-     label: 'My New Page',
+            //-     section: 'core',
+            //-     showInNav: true,
+            //-     icon: 'file-text'
+            //-   }
+            //- 
+            //- The navigation is dynamically generated based on user permissions
+            //- from the routePermissions configuration.
+            
+            .nav-section
+              h4 Navigation Loading...
+              p.text-muted Navigation failed to load. Please refresh the page.
+        .nav-panel-footer
+          .user-section
+            .user-avatar #{locals.session && locals.session.first_name && locals.session.surname ? (locals.session.first_name.charAt(0) + locals.session.surname.charAt(0)).toUpperCase() : locals.session && locals.session.username ? locals.session.username.charAt(0).toUpperCase() : 'U'}
+            .user-info
+              h5(style="font-weight: 400;") #{locals.session && (locals.session.first_name || locals.session.surname) ? (locals.session.first_name + ' ' + locals.session.surname).trim() : (locals.session ? locals.session.username : 'Guest')}
+              p #{locals.session && locals.session.profit_centre_locale ? locals.session.profit_centre_locale : 'N/A'}
+              if locals.session && locals.session.originalUserId
+                .user-switch-dropdown.footer-dropdown.mobile-only
+                  .dropdown-trigger#user-switch-trigger-mobile
+                    span.switched-user-indicator #{locals.session ? locals.session.username : 'Guest'}
+                    +icon('chevron-down', 'dropdown-arrow')
+                  .dropdown-menu#user-switch-menu-mobile
+                    .dropdown-loading Loading users...
+              else if locals.session && locals.session.username === 'admin'
+                .user-switch-dropdown.footer-dropdown.mobile-only
+                  .dropdown-trigger#user-switch-trigger-mobile
+                    span.current-user #{locals.session ? locals.session.username : 'Guest'}
+                    +icon('chevron-down', 'dropdown-arrow')
+                  .dropdown-menu#user-switch-menu-mobile
+                    .dropdown-loading Loading users...
+            button.btn.btn-primary#logout-btn-mobile.footer-logout-btn.mobile-only(title="Logout")
+              +icon('log-out')
+    
+    header.header
+      .logo
+        a(href="/")
+          if devWarningMessage
+            .dev-warning-text(style="font-size: 18px; font-weight: 900; color: #ff0000; text-transform: uppercase; letter-spacing: 1px; padding: 8px 16px; background: #fff; border: 3px solid #ff0000; border-radius: 4px;") DEVELOPMENT SITE - USE CONTEGO.WORK
+          else
+            img.logo-image(src="https://res.cloudinary.com/dn9yi7wbn/image/upload/v1755124038/Contego_-_2021_Logo_jye3qf.jpg" alt="Contego Logo")
+      .header-user-section
+        if locals.session && locals.session.originalUserId
+          .user-switch-dropdown
+            .dropdown-trigger#user-switch-trigger
+              span.switched-user-indicator #{locals.session ? locals.session.username : 'Guest'}
+              +icon('chevron-down', 'dropdown-arrow')
+            .dropdown-menu#user-switch-menu
+              .dropdown-loading Loading users...
+        else if locals.session && locals.session.username === 'admin'
+          .user-switch-dropdown
+            .dropdown-trigger#user-switch-trigger
+              span.current-user #{locals.session ? locals.session.username : 'Guest'}
+              +icon('chevron-down', 'dropdown-arrow')
+            .dropdown-menu#user-switch-menu
+              .dropdown-loading Loading users...
+        button.btn.btn-primary#logout-btn(title="Logout")
+          +icon('log-out')
+    
+    // Mobile Navigation Bar (Logo only)
+    nav.mobile-nav-bar#mobile-nav-bar
+      .mobile-nav-logo
+        a(href="/")
+          if devWarningMessage
+            .dev-warning-text-mobile(style="font-size: 12px; font-weight: 900; color: #ff0000; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 8px; background: #fff; border: 2px solid #ff0000; border-radius: 4px; white-space: nowrap;") DEV SITE
+          else
+            img.mobile-logo-image(src="https://res.cloudinary.com/dn9yi7wbn/image/upload/v1755124038/Contego_-_2021_Logo_jye3qf.jpg" alt="Contego Logo")
+
+    // Mobile Actions Bar (Icon buttons)
+    nav.mobile-actions-bar#mobile-actions-bar
+      button.mobile-action-btn#mobile-nav-ai(title="AI Assistant")
+        +icon('brain')
+        span AI
+      button.mobile-action-btn#mobile-nav-back-to-top(title="Back to Top")
+        +icon('chevron-up')
+        span Top
+      button.mobile-action-btn#mobile-nav-notifications(title="Notifications")
+        .mobile-nav-icon-container
+          +icon('bell')
+          span.notification-badge-mobile#mobile-notification-badge(style="display: none;")
+        span Alerts
+      button.mobile-action-btn#mobile-nav-nav(title="Navigation Menu")
+        +icon('compass')
+        span Nav
+    
+    .container
+      block pageHeader
+      block content
+    
+    // Back to Top Button for all pages
+    +back-to-top
+    
+    script.
+      // Panel functionality
+      document.addEventListener('DOMContentLoaded', function() {
+        const aiToggle = document.getElementById('ai-toggle');
+        const navToggle = document.getElementById('nav-toggle');
+        const aiPanel = document.getElementById('ai-panel-container');
+        const navPanel = document.getElementById('nav-panel-container');
+        const panelOverlay = document.getElementById('panel-overlay');
+        const aiClose = document.getElementById('ai-close');
+        const navClose = document.getElementById('nav-close');
+        const aiInput = document.getElementById('ai-input');
+        const aiSend = document.getElementById('ai-send');
+        const aiMessages = document.getElementById('ai-messages');
+        const aiModelSelect = document.getElementById('ai-model-select');
+        const aiHistoryBtn = document.getElementById('ai-history-btn');
+        const aiNewBtn = document.getElementById('ai-new-btn');
+        const aiHistoryPanel = document.getElementById('ai-history-panel');
+        const aiHistoryClose = document.getElementById('ai-history-close');
+        const aiHistoryList = document.getElementById('ai-history-list');
+        
+        // Toggle functions
+        function toggleAIPanel() {
+          const isActive = aiPanel.classList.contains('active');
+          aiPanel.classList.toggle('active');
+          aiToggle.classList.toggle('panel-open');
+          panelOverlay.classList.toggle('active', !isActive);
+          if (!isActive) {
+            navPanel.classList.remove('active');
+            navToggle.classList.remove('panel-open');
+            navToggle.classList.add('blurred');
+            aiToggle.classList.add('blurred');
+          } else {
+            navToggle.classList.remove('blurred');
+            aiToggle.classList.remove('blurred');
+          }
+        }
+        
+        function toggleNavPanel() {
+          const isActive = navPanel.classList.contains('active');
+          navPanel.classList.toggle('active');
+          navToggle.classList.toggle('panel-open');
+          panelOverlay.classList.toggle('active', !isActive);
+          if (!isActive) {
+            aiPanel.classList.remove('active');
+            aiToggle.classList.remove('panel-open');
+            aiToggle.classList.add('blurred');
+            navToggle.classList.add('blurred');
+          } else {
+            aiToggle.classList.remove('blurred');
+            navToggle.classList.remove('blurred');
+          }
+        }
+        
+        function closePanels() {
+          aiPanel.classList.remove('active');
+          navPanel.classList.remove('active');
+          aiToggle.classList.remove('panel-open');
+          navToggle.classList.remove('panel-open');
+          panelOverlay.classList.remove('active');
+          aiToggle.classList.remove('blurred');
+          navToggle.classList.remove('blurred');
+        }
+        
+        // Event listeners
+        aiToggle.addEventListener('click', toggleAIPanel);
+        navToggle.addEventListener('click', toggleNavPanel);
+        aiClose.addEventListener('click', toggleAIPanel);
+        navClose.addEventListener('click', toggleNavPanel);
+        panelOverlay.addEventListener('click', closePanels);
+
+        
+        // AI Chat functionality
+        function updateTokenDisplay(tokenInfo) {
+          const tokenValue = document.getElementById('token-value');
+          if (tokenValue && tokenInfo) {
+            const remaining = tokenInfo.remaining || 0;
+            const limit = tokenInfo.dailyLimit || 0;
+            
+            // Format numbers with commas
+            const formattedRemaining = remaining.toLocaleString();
+            const formattedLimit = limit.toLocaleString();
+            
+            tokenValue.textContent = `${formattedRemaining} / ${formattedLimit}`;
+          }
+        }
+        
+        function addMessage(content, isUser = false) {
+          const messageDiv = document.createElement('div');
+          messageDiv.className = `ai-message ${isUser ? 'user' : 'assistant'}`;
+          const contentDiv = document.createElement('div');
+          contentDiv.className = 'ai-message-content';
+          
+          if (isUser) {
+            // User messages stay as plain text
+            contentDiv.textContent = content;
+          } else {
+            // Assistant messages get markdown parsing with compact formatting
+            const parsedContent = marked.parse(content);
+            // Remove excessive whitespace that marked.js might add
+            const compactContent = parsedContent
+              .replace(/>\s+</g, '><')  // Remove whitespace between tags
+              .replace(/\n\s*\n/g, '\n') // Remove multiple line breaks
+              .trim();
+            contentDiv.innerHTML = compactContent;
+          }
+          
+          messageDiv.appendChild(contentDiv);
+          aiMessages.appendChild(messageDiv);
+          aiMessages.scrollTop = aiMessages.scrollHeight;
+        }
+        
+        let currentSessionId = null;
+        let chatSessions = [];
+        
+        // Load persisted session from localStorage
+        function loadPersistedSession() {
+          // Check if user is authenticated before attempting to load session
+          if (!window.sessionData || !window.sessionData.userId) {
+            // User not authenticated, clear any persisted session
+            localStorage.removeItem('aiPanel_currentSessionId');
+            return;
+          }
+          
+          const persistedSession = localStorage.getItem('aiPanel_currentSessionId');
+          if (persistedSession) {
+            currentSessionId = persistedSession;
+            // Load the conversation for this session
+            loadChatSession(currentSessionId, false); // false = don't close history panel
+          }
+        }
+        
+        // Save session to localStorage
+        function savePersistedSession() {
+          if (currentSessionId) {
+            localStorage.setItem('aiPanel_currentSessionId', currentSessionId);
+          } else {
+            localStorage.removeItem('aiPanel_currentSessionId');
+          }
+        }
+        
+        // Chat history functionality
+        function toggleHistoryPanel() {
+          const isActive = aiHistoryPanel.classList.contains('active');
+          aiHistoryPanel.classList.toggle('active');
+          if (!isActive) {
+            loadChatHistory();
+          }
+        }
+        
+        function closeHistoryPanel() {
+          aiHistoryPanel.classList.remove('active');
+        }
+        
+        function clearMessages() {
+          aiMessages.innerHTML = '<div class="ai-message assistant"><div class="ai-message-content">Welcome! How can I help you today?</div></div>';
+        }
+        
+        async function loadChatHistory() {
+          try {
+            // Check if user is authenticated before attempting to load chat history
+            if (!window.sessionData || !window.sessionData.userId) {
+              aiHistoryList.innerHTML = '<div class="ai-history-error">Please log in to view chat history</div>';
+              return;
+            }
+            
+            aiHistoryList.innerHTML = '<div class="ai-history-loading">Loading conversations...</div>';
+            
+            const response = await fetch('/api/chat/sessions');
+            if (response.ok) {
+              chatSessions = await response.json();
+              displayChatHistory();
+            } else {
+              if (response.status === 401) {
+                aiHistoryList.innerHTML = '<div class="ai-history-error">Please log in to view chat history</div>';
+              } else {
+                aiHistoryList.innerHTML = '<div class="ai-history-error">Failed to load conversations</div>';
+              }
+            }
+          } catch (error) {
+            logger.error('Error loading chat history:', error);
+            aiHistoryList.innerHTML = '<div class="ai-history-error">Error loading conversations</div>';
+          }
+        }
+        
+        function displayChatHistory() {
+          if (chatSessions.length === 0) {
+            aiHistoryList.innerHTML = '<div class="ai-history-empty">No previous conversations</div>';
+            return;
+          }
+          
+          let html = '';
+          chatSessions.forEach(session => {
+            const date = new Date(session.last_accessed || session.created_at).toLocaleDateString();
+            const time = new Date(session.last_accessed || session.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const isActive = session.session_id === currentSessionId;
+            
+            html += `
+              <div class="ai-history-item ${isActive ? 'active' : ''}" data-session-id="${session.session_id}">
+                <div class="ai-history-item-header">
+                  <h5 class="ai-history-item-title">${session.chat_name}</h5>
+                  <span class="ai-history-item-time">${date} ${time}</span>
+                </div>
+                <div class="ai-history-item-meta">
+                  <span class="ai-history-item-messages">${session.message_count} messages</span>
+                </div>
+              </div>
+            `;
+          });
+          
+          aiHistoryList.innerHTML = html;
+          
+          // Add click handlers
+          aiHistoryList.querySelectorAll('.ai-history-item').forEach(item => {
+            item.addEventListener('click', function() {
+              const sessionId = this.getAttribute('data-session-id');
+              loadChatSession(sessionId);
+            });
+          });
+        }
+        
+        async function loadChatSession(sessionId, closeHistory = true) {
+          try {
+            // Check if user is authenticated before attempting to load session
+            if (!window.sessionData || !window.sessionData.userId) {
+              clearMessages();
+              currentSessionId = null;
+              savePersistedSession(); // Clear persistence
+              return;
+            }
+            
+            if (closeHistory) {
+              closeHistoryPanel();
+            }
+            clearMessages();
+            
+            // Add loading message
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'ai-message assistant';
+            loadingDiv.innerHTML = '<div class="ai-message-content">Loading conversation...</div>';
+            aiMessages.appendChild(loadingDiv);
+            
+            const response = await fetch(`/api/chat/sessions/${sessionId}/messages`);
+            if (response.ok) {
+              const messages = await response.json();
+              currentSessionId = sessionId;
+              savePersistedSession(); // Save to localStorage
+              
+              // Remove loading message
+              loadingDiv.remove();
+              
+              // Clear and load messages
+              clearMessages();
+              messages.forEach(message => {
+                if (message.role === 'user' || message.role === 'assistant') {
+                  addMessage(message.content, message.role === 'user');
+                }
+              });
+              
+            } else {
+              // Remove loading message
+              loadingDiv.remove();
+              
+              // Handle various error cases
+              if (response.status === 404) {
+                // Session doesn't exist anymore, clear persistence
+                currentSessionId = null;
+                savePersistedSession();
+                clearMessages();
+                addMessage('Chat session no longer exists', false);
+              } else if (response.status === 401) {
+                // User not authenticated, clear persistence
+                currentSessionId = null;
+                savePersistedSession();
+                clearMessages();
+                addMessage('Please log in to view chat history', false);
+              } else {
+                clearMessages();
+                addMessage('Failed to load conversation', false);
+              }
+            }
+          } catch (error) {
+            logger.error('Error loading chat session:', error);
+            clearMessages();
+            addMessage('Error loading conversation', false);
+          }
+        }
+        
+        function startNewChat() {
+          currentSessionId = null;
+          savePersistedSession(); // Clear persistence
+          clearMessages();
+          closeHistoryPanel();
+        }
+        
+        // Event listeners for history functionality
+        aiHistoryBtn.addEventListener('click', toggleHistoryPanel);
+        aiHistoryClose.addEventListener('click', closeHistoryPanel);
+        aiNewBtn.addEventListener('click', startNewChat);
+        
+        async function ensureSession() {
+          // Check if user is authenticated before creating session
+          if (!window.sessionData || !window.sessionData.userId) {
+            addMessage('Please log in to start a chat session', false);
+            return false;
+          }
+          
+          if (!currentSessionId) {
+            try {
+              const response = await fetch('/api/chat/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_name: 'AI Chat ' + new Date().toLocaleString() })
+              });
+              
+              if (response.ok) {
+                const session = await response.json();
+                currentSessionId = session.session_id;
+                savePersistedSession(); // Save new session to localStorage
+              } else if (response.status === 401) {
+                addMessage('Please log in to start a chat session', false);
+                return false;
+              } else {
+                throw new Error('Failed to create session');
+              }
+            } catch (error) {
+              logger.error('Error creating session:', error);
+              addMessage('Error: Could not start chat session. Please try again.', false);
+              return false;
+            }
+          }
+          return true;
+        }
+        
+        async function sendMessage() {
+          const message = aiInput.value.trim();
+          if (!message) return;
+          
+          // Disable input while processing
+          aiInput.disabled = true;
+          aiSend.disabled = true;
+          
+          addMessage(message, true);
+          aiInput.value = '';
+          
+          try {
+            // Ensure we have a session
+            if (!(await ensureSession())) {
+              return;
+            }
+            
+            // Add typing indicator
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'ai-message assistant typing';
+            typingDiv.innerHTML = '<div class="ai-message-content">AI is thinking...</div>';
+            aiMessages.appendChild(typingDiv);
+            aiMessages.scrollTop = aiMessages.scrollHeight;
+            
+            // Get selected model (if available)
+            const selectedModel = aiModelSelect ? aiModelSelect.value : null;
+            
+            // Send message to API
+            const response = await fetch(`/api/chat/sessions/${currentSessionId}/messages`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: message,
+                model: selectedModel 
+              })
+            });
+            
+            // Remove typing indicator
+            typingDiv.remove();
+            
+            if (response.ok) {
+              const data = await response.json();
+              addMessage(data.assistantMessage.content, false);
+              
+              // Update token display if available
+              if (data.tokenInfo) {
+                updateTokenDisplay(data.tokenInfo);
+              }
+            } else {
+              const errorData = await response.json();
+              addMessage(`Error: ${errorData.error || 'Failed to get response'}`, false);
+            }
+            
+          } catch (error) {
+            logger.error('Error sending message:', error);
+            addMessage('Error: Could not send message. Please check your connection and try again.', false);
+          } finally {
+            // Re-enable input
+            aiInput.disabled = false;
+            aiSend.disabled = false;
+            aiInput.focus();
+          }
+        }
+        
+        aiSend.addEventListener('click', sendMessage);
+        aiInput.addEventListener('keypress', function(e) {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          }
+        });
+        
+        // Load available models for model selector
+        async function loadAvailableModels() {
+          if (aiModelSelect) {
+            try {
+              // Check if user is authenticated before loading models
+              if (!window.sessionData || !window.sessionData.userId) {
+                aiModelSelect.innerHTML = '';
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'Please log in to see models';
+                aiModelSelect.appendChild(option);
+                return;
+              }
+              
+              logger.debug('Loading LLM models');
+              const response = await fetch('/api/config/llm-models/active');
+              logger.debug('Model loading response received', { status: response.status });
+              
+              if (response.ok) {
+                const models = await response.json();
+                logger.debug('Models loaded', { count: models.length });
+                aiModelSelect.innerHTML = '';
+                
+                if (models.length === 0) {
+                  const option = document.createElement('option');
+                  option.value = '';
+                  option.textContent = 'No models available';
+                  aiModelSelect.appendChild(option);
+                } else {
+                  models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.model_key;
+                    option.textContent = model.display_name;
+                    if (model.is_default) {
+                      option.selected = true;
+                    }
+                    aiModelSelect.appendChild(option);
+                  });
+                }
+              } else {
+                logger.error('Failed to load models, status:', response.status);
+                const errorData = await response.json().catch(() => ({}));
+                logger.error('Error response:', errorData);
+                
+                // Show error in select
+                aiModelSelect.innerHTML = '';
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = response.status === 401 ? 'Please login to see models' : 'Failed to load models';
+                aiModelSelect.appendChild(option);
+              }
+            } catch (error) {
+              logger.error('Error loading models:', error);
+              // Show error in select
+              aiModelSelect.innerHTML = '';
+              const option = document.createElement('option');
+              option.value = '';
+              option.textContent = 'Error loading models';
+              aiModelSelect.appendChild(option);
+            }
+          }
+        }
+        
+        // Load models when AI panel opens
+        async function loadTokenUsage() {
+          try {
+            const response = await fetch('/api/chat/token-usage');
+            if (response.ok) {
+              const tokenInfo = await response.json();
+              updateTokenDisplay(tokenInfo);
+            } else {
+              // If error, show default
+              const tokenValue = document.getElementById('token-value');
+              if (tokenValue) {
+                tokenValue.textContent = 'Unavailable';
+              }
+            }
+          } catch (error) {
+            console.error('Error loading token usage:', error);
+            const tokenValue = document.getElementById('token-value');
+            if (tokenValue) {
+              tokenValue.textContent = 'Error';
+            }
+          }
+        }
+        
+        aiToggle.addEventListener('click', async function() {
+          if (!aiPanel.classList.contains('active')) {
+            // Load models if available
+            if (aiModelSelect) {
+              loadAvailableModels();
+            }
+            
+            // Load token info when panel opens
+            if (window.sessionData && window.sessionData.userId) {
+              loadTokenUsage();
+            }
+          }
+        });
+        
+        // Load models and token usage immediately if user is already logged in
+        if (aiModelSelect) {
+          loadAvailableModels();
+        }
+        
+        // Load token usage on page load if user is authenticated
+        if (window.sessionData && window.sessionData.userId) {
+          loadTokenUsage();
+        }
+        
+        // Load persisted session on page load
+        loadPersistedSession();
+
+        // Mobile Navigation functionality
+        const mobileNavAi = document.getElementById('mobile-nav-ai');
+        const mobileNavNav = document.getElementById('mobile-nav-nav');
+        const mobileNavBackToTop = document.getElementById('mobile-nav-back-to-top');
+        const mobileNavNotifications = document.getElementById('mobile-nav-notifications');
+
+        // Mobile AI button
+        if (mobileNavAi) {
+          mobileNavAi.addEventListener('click', function() {
+            toggleAIPanel();
+            updateMobileNavState();
+          });
+        }
+
+        // Mobile Nav button
+        if (mobileNavNav) {
+          mobileNavNav.addEventListener('click', function() {
+            toggleNavPanel();
+            updateMobileNavState();
+          });
+        }
+
+        // Mobile Back to Top button
+        if (mobileNavBackToTop) {
+          mobileNavBackToTop.addEventListener('click', function() {
+            window.scrollTo({
+              top: 0,
+              behavior: 'smooth'
+            });
+          });
+        }
+
+        // Mobile Notifications button - will trigger Vue component
+        if (mobileNavNotifications) {
+          mobileNavNotifications.addEventListener('click', function() {
+            // Use the global instance to toggle panel
+            if (window.notificationInstances && window.notificationInstances['notifications-vue-app']) {
+              window.notificationInstances['notifications-vue-app'].togglePanel();
+            }
+          });
+        }
+        
+        
+        // Function to update mobile nav button states
+        function updateMobileNavState() {
+          if (mobileNavAi && mobileNavNav) {
+            // Reset all buttons
+            mobileNavAi.classList.remove('active');
+            mobileNavNav.classList.remove('active');
+            
+            // Set active based on panel state
+            if (aiPanel.classList.contains('active')) {
+              mobileNavAi.classList.add('active');
+            } else if (navPanel.classList.contains('active')) {
+              mobileNavNav.classList.add('active');
+            }
+          }
+        }
+        
+        // Update mobile nav state when panels change
+        const originalClosePanels = closePanels;
+        closePanels = function() {
+          originalClosePanels();
+          updateMobileNavState();
+        };
+        
+        // Initial mobile nav state
+        updateMobileNavState();
+
+        // Mobile Filter Panel Functionality
+        function handleMobileFilters() {
+          const filterBars = document.querySelectorAll('.filter-bar');
+          
+          if (window.innerWidth <= 768) {
+            // Mobile view - add filter headers if they don't exist
+            filterBars.forEach(form => {
+              // Check if header already exists by looking for previous sibling
+              const prevElement = form.previousElementSibling;
+              if (prevElement && prevElement.classList.contains('mobile-filter-header')) {
+                return; // Header already exists
+              }
+              
+              // Create filter header
+              const filterHeader = document.createElement('div');
+              filterHeader.className = 'mobile-filter-header';
+              filterHeader.innerHTML = `
+                <span>Filters</span>
+                ${Icons.getIcon('chevron-down')}
+              `;
+              
+              // Insert header before the search form
+              form.parentNode.insertBefore(filterHeader, form);
+              
+              // Add click handler
+              filterHeader.addEventListener('click', function() {
+                const isExpanded = form.classList.contains('mobile-expanded');
+                logger.debug('Filter header clicked', { isExpanded, hasHeader: !!this, hasSVG: !!this.querySelector('svg') });
+                
+                if (isExpanded) {
+                  form.classList.remove('mobile-expanded');
+                  this.classList.remove('expanded');
+                  logger.debug('Removed expanded class');
+                } else {
+                  form.classList.add('mobile-expanded');
+                  this.classList.add('expanded');
+                  logger.debug('Added expanded class');
+                }
+              });
+            });
+          } else {
+            // Desktop view - remove all mobile filter headers and show filter bars
+            document.querySelectorAll('.mobile-filter-header').forEach(header => {
+              header.remove();
+            });
+            
+            filterBars.forEach(form => {
+              form.classList.remove('mobile-expanded');
+              form.style.display = ''; // Reset any inline styles
+            });
+          }
+        }
+        
+        // Initialize on load and handle window resize
+        handleMobileFilters();
+        
+        let resizeTimeout;
+        window.addEventListener('resize', function() {
+          clearTimeout(resizeTimeout);
+          resizeTimeout = setTimeout(handleMobileFilters, 100);
+        });
+
+        // Auto-resize textarea
+        aiInput.addEventListener('input', function() {
+          this.style.height = 'auto';
+          this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // AI Panel Resize Functionality
+        const aiPanelResizeHandle = document.getElementById('ai-panel-resize-handle');
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+        const minWidth = 280;
+        const maxWidth = 600;
+
+        // Load saved panel width from localStorage
+        function loadPanelWidth() {
+          const savedWidth = localStorage.getItem('aiPanelWidth');
+          const parsedWidth = parseInt(savedWidth, 10);
+          
+          // Validate saved width with proper bounds checking
+          if (savedWidth && !isNaN(parsedWidth) && parsedWidth >= minWidth && parsedWidth <= maxWidth) {
+            document.documentElement.style.setProperty('--ai-panel-width', parsedWidth + 'px');
+          } else if (savedWidth) {
+            // Clear invalid saved width
+            localStorage.removeItem('aiPanelWidth');
+          }
+        }
+
+        // Save panel width to localStorage with validation
+        function savePanelWidth(width) {
+          const validatedWidth = Math.max(minWidth, Math.min(maxWidth, parseInt(width, 10)));
+          if (!isNaN(validatedWidth)) {
+            localStorage.setItem('aiPanelWidth', validatedWidth);
+          }
+        }
+
+        // Initialize panel width and enable transitions
+        function initializePanelState() {
+          // Load width first (without transitions)
+          loadPanelWidth();
+          
+          // Force a reflow to ensure width is applied
+          aiPanel.offsetWidth;
+          navPanel.offsetWidth;
+          
+          // Enable transitions immediately
+          aiPanel.classList.add('transitions-enabled');
+          navPanel.classList.add('transitions-enabled');
+        }
+
+        // Initialize panel state on load
+        initializePanelState();
+
+        // Start resize
+        aiPanelResizeHandle.addEventListener('mousedown', function(e) {
+          isResizing = true;
+          startX = e.clientX;
+          startWidth = aiPanel.offsetWidth;
+          
+          // Add visual feedback
+          document.body.style.cursor = 'ew-resize';
+          document.body.style.userSelect = 'none';
+          aiPanel.parentElement.classList.add('resizing');
+          
+          e.preventDefault();
+        });
+
+        // Handle resize
+        document.addEventListener('mousemove', function(e) {
+          if (!isResizing) return;
+          
+          const deltaX = e.clientX - startX;
+          const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + deltaX));
+          
+          // Update CSS custom property
+          document.documentElement.style.setProperty('--ai-panel-width', newWidth + 'px');
+          
+          e.preventDefault();
+        });
+
+        // End resize
+        document.addEventListener('mouseup', function(e) {
+          if (!isResizing) return;
+          
+          isResizing = false;
+          
+          // Remove visual feedback
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          aiPanel.parentElement.classList.remove('resizing');
+          
+          // Save the final width
+          const finalWidth = aiPanel.offsetWidth;
+          savePanelWidth(finalWidth);
+        });
+      });
+      
+      // User switching functionality  
+      document.addEventListener('DOMContentLoaded', function() {
+        const userSwitchTrigger = document.getElementById('user-switch-trigger');
+        const userSwitchMenu = document.getElementById('user-switch-menu');
+        const userSwitchTriggerMobile = document.getElementById('user-switch-trigger-mobile');
+        const userSwitchMenuMobile = document.getElementById('user-switch-menu-mobile');
+        
+        // Handle both desktop and mobile user switching
+        function setupUserSwitching(trigger, menu) {
+          if (!trigger || !menu) return;
+          
+          let usersLoaded = false;
+          
+          // Toggle dropdown
+          trigger.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const isActive = menu.classList.contains('active');
+            
+            if (!isActive) {
+              trigger.classList.add('active');
+              menu.classList.add('active');
+              
+              // Load users if not already loaded
+              if (!usersLoaded) {
+                loadUsers(menu);
+                usersLoaded = true;
+              }
+            } else {
+              trigger.classList.remove('active');
+              menu.classList.remove('active');
+            }
+          });
+          
+          // Close dropdown when clicking outside
+          document.addEventListener('click', function(e) {
+            if (!trigger.contains(e.target) && !menu.contains(e.target)) {
+              trigger.classList.remove('active');
+              menu.classList.remove('active');
+            }
+          });
+        }
+        
+        // Setup both desktop and mobile user switching
+        setupUserSwitching(userSwitchTrigger, userSwitchMenu);
+        setupUserSwitching(userSwitchTriggerMobile, userSwitchMenuMobile);
+        
+        // Load all users
+        function loadUsers(menu) {
+          const originalUserId = window.sessionData?.originalUserId;
+
+          // Use special endpoint for switched users, regular endpoint for admins
+          const endpoint = originalUserId ? '/api/users/for-switching' : '/api/users/';
+
+          fetch(endpoint)
+            .then(response => response.json())
+            .then(users => {
+              let menuHTML = '';
+
+              // Add "Switch back to admin" option if currently switched
+              if (originalUserId) {
+                menuHTML += '<button class="dropdown-item original-user" data-user-id="original">Switch back to Admin</button>';
+              }
+
+              // Add all users
+              users.forEach(user => {
+                const displayName = user.username;
+
+                menuHTML += `<button class="dropdown-item" data-user-id="${user.user_id}">${displayName}</button>`;
+              });
+
+              menu.innerHTML = menuHTML;
+
+              // Add click handlers to dropdown items
+              menu.querySelectorAll('.dropdown-item').forEach(item => {
+                item.addEventListener('click', function() {
+                  const targetUserId = this.getAttribute('data-user-id');
+                  switchToUser(targetUserId);
+                });
+              });
+            })
+            .catch(error => {
+              logger.error('Error loading users:', error);
+              menu.innerHTML = '<div class="dropdown-loading">Error loading users</div>';
+            });
+        }
+          
+        // Switch to selected user
+        function switchToUser(targetUserId) {
+          fetch('/api/users/switch-user', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ targetUserId })
+          })
+          .then(response => {
+            return response.json().then(data => ({ response, data }));
+          })
+          .then(({ response, data }) => {
+            if (!ErrorHandler.showError(response, data)) {
+              // Refresh the page to show new user context
+              window.location.reload();
+            }
+          })
+          .catch(error => {
+            logger.error('Error switching user:', error);
+            showNotification('An error occurred while switching users', 'error');
+          });
+        }
+      });
+      
+      // Pass session data to JavaScript
+      window.sessionData = {
+        userId: '#{locals.session ? locals.session.userId : ""}',
+        username: '#{locals.session ? locals.session.username : ""}',
+        originalUserId: '#{locals.session ? locals.session.originalUserId : ""}'
+      };
+    
+    // Additional scripts block for page-specific scripts
+    block scripts
+    
+    script.
+      // Logout functionality
+      document.addEventListener('DOMContentLoaded', function() {
+        const logoutBtn = document.getElementById('logout-btn');
+        const logoutBtnMobile = document.getElementById('logout-btn-mobile');
+        
+        function handleLogout() {
+          return async function() {
+            try {
+              const response = await fetch('/api/auth/logout', { method: 'POST' });
+              const data = await response.json();
+              
+              if (response.ok) {
+                window.location.href = '/login';
+              } else {
+                showNotification('Logout failed: ' + data.error, 'error');
+              }
+            } catch (error) {
+              showNotification('Logout error: ' + error.message, 'error');
+            }
+          };
+        }
+        
+        if (logoutBtn) {
+          logoutBtn.addEventListener('click', handleLogout());
+        }
+        
+        if (logoutBtnMobile) {
+          logoutBtnMobile.addEventListener('click', handleLogout());
+        }
+      });
+      
+      // Back to Top functionality for all pages
+      document.addEventListener('DOMContentLoaded', function() {
+        const backToTopMobile = document.getElementById('back-to-top-mobile');
+        
+        // Smooth scroll to top function
+        function scrollToTop() {
+          window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+          });
+        }
+        
+        // Show/hide mobile back-to-top based on scroll position
+        function handleScroll() {
+          const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+          const showThreshold = 300; // Show after scrolling 300px
+          
+          if (backToTopMobile) {
+            if (scrollTop > showThreshold) {
+              backToTopMobile.classList.add('visible');
+            } else {
+              backToTopMobile.classList.remove('visible');
+            }
+          }
+        }
+        
+        // Event listeners
+        if (backToTopMobile) {
+          backToTopMobile.addEventListener('click', scrollToTop);
+        }
+        
+        // Throttled scroll listener for performance
+        let scrollTimeout;
+        window.addEventListener('scroll', function() {
+          if (scrollTimeout) {
+            clearTimeout(scrollTimeout);
+          }
+          scrollTimeout = setTimeout(handleScroll, 10);
+        });
+        
+        // Initial check
+        handleScroll();
+      });
+      
+      // Modal functionality (legacy)
+      function openModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          modal.classList.add('active');
+        }
+      }
+      
+      function closeModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          modal.classList.remove('active');
+        }
+      }
+      
+      // New modal functionality
+      function openNewModal(modalId) {
+        const overlay = document.getElementById(modalId + '-overlay');
+        if (overlay) {
+          overlay.classList.add('active');
+          
+          // Re-enable any disabled submit buttons to fix modal reopen issue
+          const submitButtons = overlay.querySelectorAll('.new-modal-submit, button[type="submit"]');
+          submitButtons.forEach(button => {
+            button.disabled = false;
+          });
+        }
+      }
+      
+      function closeNewModal(modalId) {
+        const overlay = document.getElementById(modalId + '-overlay');
+        if (overlay) {
+          overlay.classList.remove('active');
+        }
+      }
+      
+      // Close modal when clicking outside or on close button
+      document.addEventListener('click', function(e) {
+        // Legacy modal handling
+        if (e.target.classList.contains('modal')) {
+          e.target.classList.remove('active');
+        }
+        if (e.target.classList.contains('modal-close') || e.target.classList.contains('modal-cancel')) {
+          const modal = e.target.closest('.modal');
+          if (modal) {
+            modal.classList.remove('active');
+          }
+        }
+        
+        // New modal handling
+        if (e.target.classList.contains('new-modal-overlay')) {
+          // Don't close modal if clicking on Quill editor elements or tooltips
+          const clickPath = e.composedPath ? e.composedPath() : [e.target];
+          const isQuillClick = clickPath.some(el => 
+            el.classList && (
+              el.classList.contains('ql-editor') ||
+              el.classList.contains('ql-tooltip') ||
+              el.classList.contains('ql-toolbar') ||
+              el.classList.contains('rich-editor-container') ||
+              el.classList.contains('rich-editor-content')
+            )
+          );
+          
+          if (!isQuillClick) {
+            e.target.classList.remove('active');
+          }
+        }
+        if (e.target.classList.contains('new-modal-close') || 
+            e.target.classList.contains('new-modal-cancel') ||
+            e.target.closest('.new-modal-close') ||
+            e.target.closest('.new-modal-cancel')) {
+          const overlay = e.target.closest('.new-modal-overlay');
+          if (overlay) {
+            overlay.classList.remove('active');
+          }
+        }
+      });
+      
+      // Handle Escape key to close modals
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' || e.keyCode === 27) {
+          // Find active old modal and close it
+          const activeModal = document.querySelector('.modal.active');
+          if (activeModal) {
+            activeModal.classList.remove('active');
+          }
+          
+          // Find active new modal and close it  
+          const activeNewModalOverlay = document.querySelector('.new-modal-overlay.active');
+          if (activeNewModalOverlay) {
+            activeNewModalOverlay.classList.remove('active');
+          }
+        }
+      });
+      
+      // Handle form submission
+      document.addEventListener('submit', function(e) {
+        if (e.target.classList.contains('modal-form') || e.target.classList.contains('new-modal-form')) {
+          // Check if the event has already been prevented by another handler
+          if (e.defaultPrevented) {
+            return;
+          }
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const url = e.target.action;
+          const method = e.target.getAttribute('data-method') || 'POST';
+          
+          // Convert FormData to JSON object
+          const jsonData = {};
+          
+          // First, handle search-select components which store their actual values in dataset.selectedValue
+          const searchSelectInputs = e.target.querySelectorAll('input[data-search-select="true"]');
+          searchSelectInputs.forEach(input => {
+            const key = input.name;
+            if (key && input.dataset.selectedValue !== undefined) {
+              // Use the selected value from dataset, or null if empty
+              jsonData[key] = input.dataset.selectedValue || null;
+            }
+          });
+          
+          // Then process regular FormData entries
+          for (let [key, value] of formData.entries()) {
+            // Skip if we already handled this field as a search-select
+            if (jsonData.hasOwnProperty(key)) {
+              continue;
+            }
+            
+            // Convert string booleans to actual booleans
+            let processedValue = value;
+            if (value === 'true') {
+              processedValue = true;
+            } else if (value === 'false') {
+              processedValue = false;
+            }
+            
+            // Special handling for company_types: convert comma-separated string to array
+            if (key === 'company_types' && typeof processedValue === 'string' && processedValue.length > 0) {
+              processedValue = processedValue.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            }
+            
+            // Handle multiple values with the same key (create arrays)
+            if (jsonData.hasOwnProperty(key)) {
+              if (Array.isArray(jsonData[key])) {
+                jsonData[key].push(processedValue);
+              } else {
+                jsonData[key] = [jsonData[key], processedValue];
+              }
+            } else {
+              jsonData[key] = processedValue;
+            }
+          }
+          
+          fetch(url, {
+            method: method,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(jsonData)
+          })
+          .then(response => {
+            return response.json().then(data => ({ response, data }));
+          })
+          .then(({ response, data }) => {
+            if (!ErrorHandler.showError(response, data)) {
+              // Handle both modal systems
+              const modal = e.target.closest('.modal');
+              const newModalOverlay = e.target.closest('.new-modal-overlay');
+              
+              if (modal) {
+                modal.classList.remove('active');
+              }
+              if (newModalOverlay) {
+                newModalOverlay.classList.remove('active');
+              }
+              
+              e.target.reset();
+              
+              // Clear search-multi-select components that aren't reset by standard form reset
+              const searchMultiSelectInputs = e.target.querySelectorAll('input[data-multiselect-id]');
+              searchMultiSelectInputs.forEach(input => {
+                const uniqueId = input.getAttribute('data-multiselect-id');
+                if (uniqueId && typeof MultiSelectManager !== 'undefined' && MultiSelectManager.clearSearchMultiSelect) {
+                  MultiSelectManager.clearSearchMultiSelect(uniqueId);
+                }
+              });
+              
+              // Optimistic updates instead of page reload
+              const isCompaniesPage = window.location.pathname === '/companies';
+              const isContactsPage = window.location.pathname === '/contacts';
+              
+              if (isCompaniesPage && typeof window.addCompanyToTable === 'function' && typeof window.updateCompanyInTable === 'function') {
+                try {
+                  if (method === 'POST') {
+                    // CREATE operation - add new company to table
+                    const newCompanyData = {
+                      company_id: data.company_id,
+                      name: jsonData.name,
+                      website_url: jsonData.website || null,
+                      logo_url: jsonData.logo || null,
+                      created_at: new Date().toISOString(),
+                      all_types: Array.isArray(jsonData.company_types) ? jsonData.company_types : []
+                    };
+                    window.addCompanyToTable(newCompanyData);
+                    showNotification('Company added successfully', 'success');
+                  } else if (method === 'PUT') {
+                    // UPDATE operation - update existing company in table
+                    const companyId = url.split('/').pop(); // Extract ID from URL like /api/companies/123
+                    const updatedCompanyData = {
+                      name: jsonData.name,
+                      website_url: jsonData.website || null,
+                      logo_url: jsonData.logo || null,
+                      all_types: Array.isArray(jsonData.company_types) ? jsonData.company_types : [],
+                      updated_at: new Date().toISOString()
+                    };
+                    window.updateCompanyInTable(companyId, updatedCompanyData);
+                    showNotification('Company updated successfully', 'success');
+                  }
+                } catch (error) {
+                  logger.error('Error with optimistic update:', error);
+                  // Fallback to page reload if optimistic update fails
+                  location.reload();
+                }
+              } else if (isContactsPage && typeof window.addContactToTable === 'function' && typeof window.updateContactInTable === 'function') {
+                try {
+                  if (method === 'POST') {
+                    // CREATE operation - add new contact to table
+                    const newContactData = {
+                      contact_id: data.contact_id,
+                      name: jsonData.name,
+                      position: jsonData.position || '',
+                      email: jsonData.email,
+                      phone: jsonData.phone || '',
+                      company: data.company || '', // Company name for display
+                      area: jsonData.area || '',
+                      preferred_contact: jsonData.preferred_contact || '',
+                      is_preferred: jsonData.preferred === 'yes',
+                      created_at: new Date().toISOString()
+                    };
+                    window.addContactToTable(newContactData);
+                    showNotification('Contact added successfully', 'success');
+                  } else if (method === 'PUT') {
+                    // UPDATE operation - update existing contact in table
+                    const contactId = url.split('/').pop(); // Extract ID from URL like /api/contacts/123
+                    const updatedContactData = {
+                      name: jsonData.name,
+                      position: jsonData.position || '',
+                      email: jsonData.email,
+                      phone: jsonData.phone || '',
+                      company: data.company || '', // Company name for display
+                      area: jsonData.area || '',
+                      preferred_contact: jsonData.preferred_contact || '',
+                      is_preferred: jsonData.preferred === 'yes',
+                      updated_at: new Date().toISOString()
+                    };
+                    window.updateContactInTable(contactId, updatedContactData);
+                    showNotification('Contact updated successfully', 'success');
+                  }
+                } catch (error) {
+                  logger.error('Error with optimistic update:', error);
+                  // Fallback to page reload if optimistic update fails
+                  location.reload();
+                }
+              } else {
+                // For Surveys page, use optimistic updates
+                const isSurveysPage = window.location.pathname === '/surveys';
+                if (isSurveysPage && typeof window.addCampaignToTable === 'function' && typeof window.updateCampaignInTable === 'function') {
+                  try {
+                    if (url.includes('/api/surveys/campaigns')) {
+                      if (method === 'POST') {
+                        // CREATE operation - add new campaign to table
+                        showNotification('Campaign created successfully', 'success');
+                        window.addCampaignToTable(data);
+                      } else if (method === 'PUT') {
+                        // UPDATE operation - update existing campaign in table
+                        const campaignId = url.split('/').pop(); // Extract ID from URL
+                        showNotification('Campaign updated successfully', 'success');
+                        window.updateCampaignInTable(campaignId, data);
+                      }
+                    }
+                  } catch (error) {
+                    logger.error('Error with optimistic update:', error);
+                    // Fallback to page reload if optimistic update fails
+                    location.reload();
+                  }
+                // For NCR page, show notification but don't reload
+                } else if (window.location.pathname === '/ncr') {
+                  if (url.includes('/api/ncr')) {
+                    if (method === 'POST') {
+                      showNotification('NCR created successfully', 'success');
+                      // Add the new NCR to the table if the function exists
+                      if (typeof window.addNcrToTable === 'function' && data) {
+                        window.addNcrToTable(data);
+                      }
+                    } else if (method === 'PUT') {
+                      showNotification('NCR updated successfully', 'success');
+                      // Update the NCR in the table if the function exists
+                      if (typeof window.updateNcrInTable === 'function' && data) {
+                        // Extract NCR ID from the form's hidden field or from the data
+                        const ncrId = data.ncr_report_id || jsonData.ncr_report_id;
+                        if (ncrId) {
+                          window.updateNcrInTable(ncrId, data);
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  // Fallback to page reload for other pages
+                  location.reload();
+                }
+              }
+            }
+          })
+          .catch(error => {
+            logger.error('Error:', error);
+            showNotification('An error occurred while saving', 'error');
+          });
+        }
+        
+        // Dynamic Navigation Section Management
+        // Hide navigation sections with 1 or fewer visible links
+        function updateNavigationSections() {
+          const navSections = document.querySelectorAll('.nav-section');
+          navSections.forEach(section => {
+            const visibleLinks = section.querySelectorAll('.nav-link:not([style*="display: none"])');
+            if (visibleLinks.length <= 1) {
+              section.style.display = 'none';
+            } else {
+              section.style.display = '';
+            }
+          });
+        }
+        
+        // Run navigation section update on page load
+        updateNavigationSections();
+      });

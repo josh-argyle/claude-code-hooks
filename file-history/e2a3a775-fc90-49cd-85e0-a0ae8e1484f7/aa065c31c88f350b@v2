@@ -1,0 +1,564 @@
+# Agent Prompt: Complete Report Builder Requirements Generators
+
+## Mission
+
+Create 4 missing requirements-generator.js files to complete the professional fire safety compliance report builder. The report builder is 60% complete - all compliance generators exist, but only 1 of 5 requirements generators exists.
+
+**Goal:** 100% completion of report builder with professional C/AS2 regulatory language.
+
+## Critical Project Rules
+
+1. **TDD Approach**: Only the human can make rules for tests. No exceptions!
+2. **Never mark tasks as done when they're not**: Always ask the human how to proceed
+3. **Server runs on port 3000**: Never stop, kill, restart or run it unless expressly requested
+4. **No --no-verify**: Never bypass linting
+5. **Be methodical and meticulous**: Use ULTRATHINK approach - analyze before acting
+6. **Professional language**: All TEXT must reference C/AS2, use proper fire engineering terminology
+
+## Context & Background
+
+### What This Is About
+
+This project generates professional fire safety compliance documents for New Zealand buildings using C/AS2 (Compliance Acceptable Solution 2). The report builder creates two types of content:
+
+1. **Compliance Generators** (COMPLETE ✅): Show "what we found" - calculation results, compliance status
+2. **Requirements Generators** (20% COMPLETE ❌): Show "what you must do" - design requirements, implementation mandates
+
+**Current State:**
+- ✅ All 5 compliance-generator.js files exist
+- ✅ 1 of 5 requirements-generator.js files exists (fire-resistance)
+- ❌ 4 requirements-generator.js files missing
+- ✅ Report builder infrastructure complete
+- ✅ View rendering complete
+
+### Why Requirements Generators Matter
+
+Compliance generators tell the user "your building needs X minutes of fire resistance" (the result).
+Requirements generators tell the user "you must build walls with Y-rated materials per C/AS2 Table 3.1" (the action).
+
+**Think of it like:**
+- **Compliance**: "Test Result: Your score is 85%"
+- **Requirements**: "To pass, you must achieve 80% and submit by Friday"
+
+Both are needed for a complete professional document.
+
+## Files You MUST Read (In Order)
+
+### 1. Understand the Pattern - Read These First
+
+**The Gold Standard (Fire Resistance - Already Complete):**
+```
+/home/io/WebstormProjects/spec_v3/api/processors/fire-resistance/requirements-generator.js
+/home/io/WebstormProjects/spec_v3/api/processors/fire-resistance/compliance-generator.js
+```
+
+**Why read both?**
+- Compliance shows WHAT was calculated
+- Requirements shows WHAT must be done
+- See how they complement each other
+- Understand the TEXT constant pattern
+- Note the use of createRequirementsParagraph vs createComplianceParagraph
+
+**The Utility (How to Build Paragraphs):**
+```
+/home/io/WebstormProjects/spec_v3/api/utilities/paragraph-builder.js
+```
+
+**Key functions:**
+- `createRequirementsParagraph(title, content, priority)` - priority: 'high', 'standard', 'low'
+- `createTableParagraph(title, headers, rows)` - for tabular requirements
+- `createInfoParagraph(title, content)` - for general information
+- `createListParagraph(title, items, listType)` - for bulleted requirements
+
+### 2. Read Existing Compliance Generators (Understand the Data)
+
+**These show what data is available to work with:**
+```
+/home/io/WebstormProjects/spec_v3/api/processors/hazardous-substances/compliance-generator.js
+/home/io/WebstormProjects/spec_v3/api/processors/fire-safety-systems/compliance-generator.js
+/home/io/WebstormProjects/spec_v3/api/processors/occupant-load/compliance-generator.js
+/home/io/WebstormProjects/spec_v3/api/processors/firecells/compliance-generator.js
+```
+
+**What to look for:**
+- What fields from projectModel are accessed?
+- What calculations are displayed?
+- What TEXT constants are defined?
+- What compliance statuses are checked?
+
+### 3. Reference Documents (Professional Language Source)
+
+**Optional but recommended for TEXT content inspiration:**
+```
+/home/io/WebstormProjects/spec_v3/docs/reference/document-blocks/CLAUDE.md
+/home/io/WebstormProjects/spec_v3/docs/reference/document-blocks/standard/CLAUDE.md
+```
+
+These contain professional fire safety language from the legacy system. **DO NOT COPY VERBATIM** - adapt for our new system.
+
+### 4. The Original Plan
+
+```
+/home/io/WebstormProjects/spec_v3/plans/report-builder-implementation-v2.md
+```
+
+Contains detailed specifications, TEXT content suggestions, and implementation order.
+
+## What You Need to Create
+
+### File 1: Hazardous Substances Requirements Generator
+**Path:** `/home/io/WebstormProjects/spec_v3/api/processors/hazardous-substances/requirements-generator.js`
+
+**Purpose:** Define what the client must do regarding hazardous substances compliance
+
+**Data Available** (from compliance-generator.js):
+- `projectModel.storesHazardousGoods` (true/false)
+
+**Expected Content:**
+- Requirement to comply with NZBC Clause F3
+- Requirement to comply with HSNO Act 1996
+- Requirement to comply with Health & Safety at Work regulations
+- If storing hazardous goods: additional design requirements
+- Priority: 'high' for regulatory compliance
+
+**Pattern to Follow:**
+```javascript
+const TEXT = {
+  regulatory_compliance: {
+    content: "The building design must ensure compliance with NZBC Clause F3, the Hazardous Substances and New Organisms Act 1996, and the Health and Safety at Work (Hazardous Substances) Regulations 2017.",
+    priority: 'high'
+  },
+
+  storage_requirements: {
+    content: "Where hazardous substances are stored, used, or processed, the building design must include appropriate containment, ventilation, and emergency response provisions as required by applicable regulations.",
+    priority: 'high'
+  },
+
+  documentation: {
+    content: "A hazardous substances inventory and management plan shall be prepared in accordance with regulatory requirements prior to building consent.",
+    priority: 'standard'
+  }
+};
+```
+
+### File 2: Fire Safety Systems Requirements Generator
+**Path:** `/home/io/WebstormProjects/spec_v3/api/processors/fire-safety-systems/requirements-generator.js`
+
+**Purpose:** Define what fire safety systems must be installed and how
+
+**Data Available** (from compliance-generator.js):
+- `projectModel.firecells[].processedFireSafetySystems` - array of required systems
+- `projectModel.remoteReceivingCentreCompliance`
+- Early childhood centre requirements
+- NZS 4515 substitution info
+
+**Expected Content:**
+- Table of required systems per firecell with installation requirements
+- For each system type: installation standards, testing requirements
+- Remote receiving centre connection requirements (if applicable)
+- Commissioning and certification requirements
+- Priority: 'high' for critical systems (Type 2, 5, 7), 'standard' for others
+
+**System Descriptions (Use Official Terminology):**
+- Type 1: "Domestic smoke alarms installed per NZS 4514:2021"
+- Type 2: "Manual fire alarm system per NZS 4512:2010"
+- Type 5: "Automatic fire alarm system with modified smoke detection per NZS 4512:2010"
+- Type 7: "Automatic fire sprinkler system per NZS 4541 or NZS 4515"
+- Type 9: "Smoke control system per C/AS2 requirements"
+- Type 15: "Emergency lighting system per NZS 2293"
+- Type 18: "Fire hydrant system per SNZ PAS 4509"
+
+**Pattern to Follow:**
+```javascript
+const TEXT = {
+  installation_general: "All fire safety systems shall be designed, installed, and commissioned by competent persons in accordance with relevant New Zealand Standards.",
+
+  systems: {
+    type_1: {
+      requirement: "Type 1 domestic smoke alarms shall be installed in accordance with NZS 4514:2021. Alarms shall be interconnected and provided with mains power supply plus battery backup.",
+      priority: 'high'
+    },
+    type_2: {
+      requirement: "Type 2 manual fire alarm system shall be installed throughout the building in accordance with NZS 4512:2010. Manual call points shall be located at all exits and within 30m travel distance.",
+      priority: 'high'
+    },
+    // ... more systems
+  },
+
+  commissioning: "All fire safety systems shall be commissioned and tested prior to occupation. Producer statements PS1 and PS4 shall be provided by competent persons.",
+
+  maintenance: "An annual maintenance program shall be established for all fire safety systems in accordance with relevant standards and NZBC Clause F7."
+};
+```
+
+### File 3: Occupant Load Requirements Generator
+**Path:** `/home/io/WebstormProjects/spec_v3/api/processors/occupant-load/requirements-generator.js`
+
+**Purpose:** Define how occupant loads affect design requirements
+
+**Data Available** (from compliance-generator.js):
+- `projectModel.firecells[].occupantLoad` - calculated loads per firecell
+- Total occupant load
+
+**Expected Content:**
+- Requirements for escape routes based on occupant load
+- Requirements for door widths based on occupant load
+- Requirements for signage and emergency lighting based on load
+- Requirements for floor space per person
+- Priority: 'high' for escape provisions, 'standard' for others
+
+**Pattern to Follow:**
+```javascript
+const TEXT = {
+  escape_routes: (occupantLoad) => {
+    if (occupantLoad <= 50) {
+      return "With an occupant load of " + occupantLoad + " people, a minimum of 1 escape route is required per C/AS2 Table 6.1.";
+    } else if (occupantLoad <= 100) {
+      return "With an occupant load of " + occupantLoad + " people, a minimum of 2 escape routes are required per C/AS2 Table 6.1.";
+    } else {
+      return "With an occupant load of " + occupantLoad + " people, a minimum of 3 escape routes are required per C/AS2 Table 6.1.";
+    }
+  },
+
+  door_widths: "All escape route doors shall provide minimum clear width of 850mm. Total exit width shall accommodate the occupant load at 7mm per person for horizontal exits and 9mm per person for vertical exits per C/AS2 requirements.",
+
+  verification: "Final occupancy permits shall not exceed the calculated occupant loads unless the building design is reassessed for compliance with increased occupancy."
+};
+```
+
+### File 4: Firecells Requirements Generator
+**Path:** `/home/io/WebstormProjects/spec_v3/api/processors/firecells/requirements-generator.js`
+
+**Purpose:** Define firecell construction and separation requirements
+
+**Data Available** (from compliance-generator.js):
+- `projectModel.firecells[].floorArea` - area per firecell
+- `projectModel.firecells[].compliance.firecellFloorArea` - area limit compliance
+- `projectModel.firecells[].riskGroup` - risk classification
+- `projectModel.firecells[].isSprinklered` - sprinkler status
+
+**Expected Content:**
+- Requirements for fire separation between firecells
+- Requirements for firecell construction (walls, floors, ceilings)
+- Requirements for penetrations and services
+- Requirements for door closures
+- Floor area compliance requirements
+- Priority: 'high' for fire separations, 'standard' for construction details
+
+**Pattern to Follow:**
+```javascript
+const TEXT = {
+  fire_separation: (frr) =>
+    "Fire separating walls between firecells shall provide a fire resistance rating of " + frr + " minutes in accordance with C/AS2 Table 3.1. Separations shall extend from floor to underside of floor or roof above.",
+
+  construction: "Firecell boundaries shall be constructed with fire-rated materials and assemblies. All junctions and penetrations shall maintain the required fire resistance rating.",
+
+  penetrations: "All service penetrations through firecell boundaries shall be protected with approved firestopping systems that maintain the fire resistance rating of the separation. Firestopping shall be installed by competent persons and certified.",
+
+  doors: "Doors in firecell separations shall be fire-rated to match the wall rating and fitted with self-closing devices. Door hardware shall not compromise the fire rating.",
+
+  floor_area_exceeded: (actual, limit) =>
+    "Firecell floor area of " + actual + "m² exceeds the C/AS2 Table 2.1 limit of " + limit + "m². The design must be modified to: (a) reduce firecell area, (b) install sprinklers, or (c) seek alternative solution approval.",
+
+  verification: "Firecell construction shall be verified through appropriate building consent processes. Producer statements shall be provided for fire-rated construction elements."
+};
+```
+
+## Implementation Pattern - ULTRATHINK THIS
+
+### Step 1: Analyze the Compliance Generator First
+For each requirements generator you create:
+
+1. **Read the corresponding compliance-generator.js**
+2. **Identify what data it displays** (fields accessed from projectModel)
+3. **Identify what compliance statuses it shows** (compliant, non-compliant, etc.)
+4. **Ask yourself:** "If this shows WHAT was calculated, what are the REQUIREMENTS to implement it?"
+
+### Step 2: Draft TEXT Constants
+Professional fire safety language is critical:
+
+```javascript
+const TEXT = {
+  // Regulatory requirements (high priority)
+  regulatory: {
+    content: "...",
+    priority: 'high'
+  },
+
+  // Installation requirements (high priority)
+  installation: {
+    content: "...",
+    priority: 'high'
+  },
+
+  // Design requirements (standard priority)
+  design: {
+    content: "...",
+    priority: 'standard'
+  },
+
+  // Verification requirements (standard priority)
+  verification: {
+    content: "...",
+    priority: 'standard'
+  },
+
+  // Maintenance requirements (low priority for compliance doc)
+  maintenance: {
+    content: "...",
+    priority: 'low'
+  }
+};
+```
+
+### Step 3: Implement the Generator Function
+```javascript
+/**
+ * Generate requirements paragraphs for [feature name]
+ * @param {ProjectModel} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateRequirementsParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // 1. Add overview/intro if needed
+  paragraphs.push(
+    createInfoParagraph(
+      'Requirements Overview',
+      TEXT.overview.content
+    )
+  );
+
+  // 2. Add high-priority requirements (regulatory, critical safety)
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Regulatory Compliance',
+      TEXT.regulatory.content,
+      'high'
+    )
+  );
+
+  // 3. Add tables if showing multiple requirements
+  if (needsTable) {
+    paragraphs.push(
+      createTableParagraph(
+        'System Installation Requirements',
+        headers,
+        rows
+      )
+    );
+  }
+
+  // 4. Add conditional requirements based on projectModel data
+  if (projectModel.someCondition) {
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Special Requirements',
+        TEXT.special.content,
+        'high'
+      )
+    );
+  }
+
+  // 5. Add standard and low priority requirements
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Design Standards',
+      TEXT.design.content,
+      'standard'
+    )
+  );
+
+  return paragraphs;
+}
+
+module.exports = { generateRequirementsParagraphs };
+```
+
+### Step 4: Follow Fire Resistance Pattern EXACTLY
+The fire-resistance requirements-generator is your template. It shows:
+- How to structure TEXT constants
+- How to use createRequirementsParagraph with priority levels
+- How to create requirements tables
+- How to handle special conditions
+- How to reference C/AS2 properly
+
+**DO NOT DEVIATE** from this established pattern without good reason.
+
+## How to Test Your Work
+
+### Test 1: Verify File Structure
+```bash
+# All 4 files should exist
+ls -la api/processors/hazardous-substances/requirements-generator.js
+ls -la api/processors/fire-safety-systems/requirements-generator.js
+ls -la api/processors/occupant-load/requirements-generator.js
+ls -la api/processors/firecells/requirements-generator.js
+```
+
+### Test 2: Verify Export
+Each file should export `{ generateRequirementsParagraphs }`:
+```bash
+# Check exports
+grep "module.exports" api/processors/*/requirements-generator.js
+```
+
+### Test 3: Run Linter
+```bash
+# Must pass linting
+npm run lint
+```
+
+### Test 4: Manual Integration Test
+You'll need to:
+1. Update report-builder.js to import and call the new requirements generators
+2. Update server.js or pipeline.js to pass documentType = 'requirements-document' when needed
+3. Test by submitting a form and checking the generated report
+
+**DO NOT** do integration until all 4 files are created and you ask the human.
+
+## Success Criteria
+
+- [ ] All 4 requirements-generator.js files created
+- [ ] Each file has comprehensive TEXT constants with C/AS2 references
+- [ ] Each file exports `generateRequirementsParagraphs` function
+- [ ] Professional fire safety language throughout (not casual/informal)
+- [ ] Proper use of createRequirementsParagraph with priority levels
+- [ ] Follows fire-resistance pattern (gold standard)
+- [ ] All files pass linting (npm run lint)
+- [ ] TEXT references C/AS2 tables, sections, standards appropriately
+- [ ] Priority levels make sense (high = critical safety, standard = important, low = nice-to-have)
+- [ ] Human approval before integration testing
+
+## Red Flags to Watch For
+
+⚠️ **Don't use casual language** - "You should install sprinklers" → "Automatic fire sprinkler system shall be installed per NZS 4541"
+
+⚠️ **Don't skip C/AS2 references** - Every requirement should cite the regulation: "per C/AS2 Table 2.2", "in accordance with C/AS2 Section 1.2.5"
+
+⚠️ **Don't copy compliance generator logic** - Requirements show WHAT TO DO, not WHAT WAS CALCULATED
+
+⚠️ **Don't use wrong paragraph types** - Use createRequirementsParagraph, not createComplianceParagraph
+
+⚠️ **Don't guess priority levels** - High = life safety/regulatory, Standard = design/construction, Low = maintenance/documentation
+
+⚠️ **Don't integrate before human approval** - Create files first, test after approval
+
+⚠️ **Don't deviate from fire-resistance pattern** - It's the gold standard for a reason
+
+## Professional Language Examples
+
+### ❌ Bad (Casual, Vague)
+"You need to install some smoke alarms and make sure they work. Connect them all together."
+
+### ✅ Good (Professional, Specific)
+"Type 1 domestic smoke alarms shall be installed in accordance with NZS 4514:2021. Alarms shall be interconnected and provided with mains power supply plus battery backup per C/AS2 Table 2.2 requirements."
+
+### ❌ Bad (Missing References)
+"The walls between fire compartments need to be fire-rated."
+
+### ✅ Good (Referenced, Specific)
+"Fire separating walls between firecells shall provide a fire resistance rating of 60 minutes in accordance with C/AS2 Table 3.1. Separations shall extend from floor to underside of floor or roof above."
+
+### ❌ Bad (Wrong Type)
+Using createComplianceParagraph() in a requirements generator.
+
+### ✅ Good (Correct Type)
+Using createRequirementsParagraph() with appropriate priority level.
+
+## Expected Timeline
+
+- **Phase 1: Research & Understanding** (30-45 min)
+  - Read fire-resistance requirements and compliance generators
+  - Read all 4 existing compliance generators
+  - Understand paragraph-builder API
+  - Review original plan
+
+- **Phase 2: Create TEXT Constants** (45-60 min)
+  - Draft professional language for each generator
+  - Include C/AS2 references
+  - Define priority levels
+
+- **Phase 3: Implement Functions** (30-45 min)
+  - Create 4 generator files following pattern
+  - Implement generateRequirementsParagraphs functions
+  - Handle conditional logic
+
+- **Phase 4: Lint & Review** (15-30 min)
+  - Run linter on all files
+  - Fix any issues
+  - Review against success criteria
+
+- **Phase 5: Ask Human for Approval** (5 min)
+  - Present completed work
+  - Ask for integration approval
+
+**Total: ~2.5-3 hours for methodical, thorough approach**
+
+## Starting Commands
+
+```bash
+# 1. Verify current state
+ls -la api/processors/*/requirements-generator.js
+
+# 2. Read the gold standard
+cat api/processors/fire-resistance/requirements-generator.js
+
+# 3. Read existing compliance generators (understand data available)
+cat api/processors/hazardous-substances/compliance-generator.js
+cat api/processors/fire-safety-systems/compliance-generator.js
+cat api/processors/occupant-load/compliance-generator.js
+cat api/processors/firecells/compliance-generator.js
+
+# 4. After creating files - run lint
+npm run lint
+
+# 5. Verify exports
+grep -r "generateRequirementsParagraphs" api/processors/*/requirements-generator.js
+```
+
+## Questions to Ask Human Before Integration
+
+1. Should I update report-builder.js to import these generators now?
+2. Should I update the document type logic in pipeline.js or server.js?
+3. Do you want to test with a form submission or wait?
+4. Are there any specific requirements you want emphasized?
+5. Should requirements generators be called alongside compliance generators, or only for 'requirements-document' type?
+
+## Final Reminder
+
+**BE METHODICAL. BE METICULOUS. USE ULTRATHINK.**
+
+Read fire-resistance requirements-generator.js THOROUGHLY. It's your template. Every requirements generator should follow that same professional structure, that same TEXT constant pattern, that same use of priority levels.
+
+Professional fire safety language is NON-NEGOTIABLE. This isn't a casual report - it's a regulatory compliance document that will be reviewed by building consent authorities.
+
+When in doubt about language, ask "Would a fire engineer write it this way? Does it reference the specific regulation?"
+
+**DO NOT RUSH. QUALITY OVER SPEED.**
+
+When ready for integration, ASK THE HUMAN.
+
+---
+
+## Todo List for Agent
+
+- [ ] Read fire-resistance/requirements-generator.js (gold standard)
+- [ ] Read fire-resistance/compliance-generator.js (see the difference)
+- [ ] Read paragraph-builder.js (understand the API)
+- [ ] Read all 4 existing compliance generators (understand available data)
+- [ ] Review original plan report-builder-implementation-v2.md
+- [ ] Create hazardous-substances/requirements-generator.js with TEXT constants
+- [ ] Create fire-safety-systems/requirements-generator.js with TEXT constants
+- [ ] Create occupant-load/requirements-generator.js with TEXT constants
+- [ ] Create firecells/requirements-generator.js with TEXT constants
+- [ ] Verify all files export generateRequirementsParagraphs function
+- [ ] Run npm run lint and fix any issues
+- [ ] Verify all TEXT constants reference C/AS2 appropriately
+- [ ] Verify all priority levels are appropriate (high/standard/low)
+- [ ] Review professional language quality
+- [ ] Ask human for approval before integration
+- [ ] (After approval) Update report-builder.js to import new generators
+- [ ] (After approval) Test with form submission
+- [ ] (After approval) Verify requirements render correctly in view
+- [ ] Document any learnings or recommendations

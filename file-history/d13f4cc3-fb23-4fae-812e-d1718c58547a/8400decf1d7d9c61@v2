@@ -1,0 +1,46 @@
+const { buildReport } = require('../../api/report-builder');
+const ProjectModel = require('../../api/models/project-model');
+
+describe('Report Builder', () => {
+  describe('buildReport', () => {
+    test('should return projectModel', () => {
+      const projectModel = new ProjectModel();
+      const result = buildReport(projectModel);
+
+      expect(result).toBe(projectModel);
+    });
+
+    test('should add reportParagraphs array to projectModel', () => {
+      const projectModel = new ProjectModel();
+      const result = buildReport(projectModel);
+
+      expect(result.reportParagraphs).toBeDefined();
+      expect(Array.isArray(result.reportParagraphs)).toBe(true);
+    });
+
+    test('should handle empty projectModel', () => {
+      const projectModel = new ProjectModel();
+      const result = buildReport(projectModel);
+
+      // Should always include standard sections (disclaimer, introduction, legal requirements)
+      expect(result.reportParagraphs).toBeDefined();
+      expect(result.reportParagraphs.length).toBeGreaterThan(0);
+    });
+
+    test('should accept documentType parameter', () => {
+      const projectModel = new ProjectModel();
+      const result = buildReport(projectModel, 'fire-report');
+
+      expect(result.reportParagraphs).toBeDefined();
+      expect(Array.isArray(result.reportParagraphs)).toBe(true);
+    });
+
+    test('should default to fire-report documentType', () => {
+      const projectModel = new ProjectModel();
+      const result = buildReport(projectModel);
+
+      // Should not throw and should work with default
+      expect(result.reportParagraphs).toBeDefined();
+    });
+  });
+});

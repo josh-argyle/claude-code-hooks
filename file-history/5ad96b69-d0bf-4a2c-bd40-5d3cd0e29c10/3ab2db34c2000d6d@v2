@@ -1,0 +1,29 @@
+const evaluateNote1a = require('./note-1a-evaluator');
+const evaluateNote1b = require('./note-1b-evaluator');
+const evaluateNote1c = require('./note-1c-evaluator');
+const evaluateNote1d = require('./note-1d-evaluator');
+const evaluateNote2 = require('./note-2-evaluator');
+const evaluateNote3 = require('./note-3-evaluator');
+const evaluateNote4 = require('./note-4-evaluator');
+const evaluateNote5 = require('./note-5-evaluator');
+const evaluateNote6 = require('./note-6-evaluator');
+const evaluateNote7 = require('./note-7-evaluator');
+const evaluateNote8 = require('./note-8-evaluator');
+const evaluateNote9 = require('./note-9-evaluator');
+const evaluateNote10 = require('./note-10-evaluator');
+
+module.exports = {
+  evaluateNote1a,
+  evaluateNote1b,
+  evaluateNote1c,
+  evaluateNote1d,
+  evaluateNote2,
+  evaluateNote3,
+  evaluateNote4,
+  evaluateNote5,
+  evaluateNote6,
+  evaluateNote7,
+  evaluateNote8,
+  evaluateNote9,
+  evaluateNote10,
+};

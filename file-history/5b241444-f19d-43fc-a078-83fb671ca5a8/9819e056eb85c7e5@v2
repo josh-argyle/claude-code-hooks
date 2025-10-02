@@ -1,0 +1,110 @@
+const {
+  createRequirementsParagraph,
+  createInfoParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Hazardous substances regulatory compliance requirements
+ */
+const TEXT = {
+  overview: {
+    content: "Where hazardous substances are stored, used, or processed within the building, compliance with additional regulatory frameworks beyond C/AS2 is mandatory."
+  },
+
+  regulatory_compliance: {
+    content: "The building design and operation shall ensure full compliance with NZBC Clause F3 (Hazardous Substances and Processes), the Hazardous Substances and New Organisms Act 1996, and the Health and Safety at Work (Hazardous Substances) Regulations 2017. These regulations impose specific requirements for containment, ventilation, separation, and emergency response provisions.",
+    priority: 'high'
+  },
+
+  storage_design_requirements: {
+    content: "Where hazardous substances are stored, used, or processed, the building design shall incorporate appropriate containment systems, ventilation provisions, emergency response facilities, and separation from occupied spaces as required by the applicable regulations. Design shall be undertaken by competent persons with expertise in hazardous substances management.",
+    priority: 'high'
+  },
+
+  documentation_requirements: {
+    content: "A comprehensive hazardous substances inventory and management plan shall be prepared in accordance with the Health and Safety at Work (Hazardous Substances) Regulations 2017 prior to submission for building consent. This documentation shall identify all substances, quantities, storage locations, and associated risk mitigation measures.",
+    priority: 'standard'
+  },
+
+  competent_design: {
+    content: "All hazardous substances-related building elements shall be designed and certified by persons competent in hazardous substances engineering. Producer statements shall be provided demonstrating compliance with NZBC Clause F3 and relevant regulations.",
+    priority: 'standard'
+  },
+
+  no_storage_confirmation: {
+    content: "The client has confirmed that the proposed building will not be used to store, use, or process hazardous substances. Should this use change in future, compliance with NZBC Clause F3, the HSNO Act 1996, and H&S regulations will be required prior to any such storage or use.",
+    priority: 'low'
+  }
+};
+
+/**
+ * Generate requirements paragraphs for hazardous substances feature
+ * @param {Object} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateRequirementsParagraphs(projectModel) {
+  const paragraphs = [];
+
+  const storesGoods = projectModel.storesHazardousGoods === true || projectModel.storesHazardousGoods === 'true';
+  const doesNotStore = projectModel.storesHazardousGoods === false || projectModel.storesHazardousGoods === 'false';
+
+  if (storesGoods) {
+    // Overview for buildings storing hazardous substances
+    paragraphs.push(
+      createInfoParagraph(
+        'Hazardous Substances Requirements',
+        TEXT.overview.content
+      )
+    );
+
+    // High-priority regulatory compliance
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Regulatory Compliance Mandate',
+        TEXT.regulatory_compliance.content,
+        'high'
+      )
+    );
+
+    // High-priority design requirements
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Design Requirements',
+        TEXT.storage_design_requirements.content,
+        'high'
+      )
+    );
+
+    // Standard-priority documentation requirements
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Documentation Requirements',
+        TEXT.documentation_requirements.content,
+        'standard'
+      )
+    );
+
+    // Standard-priority competent design requirements
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Competent Design and Certification',
+        TEXT.competent_design.content,
+        'standard'
+      )
+    );
+  } else if (doesNotStore) {
+    // Low-priority confirmation for buildings not storing hazardous substances
+    paragraphs.push(
+      createRequirementsParagraph(
+        'No Hazardous Substances Storage',
+        TEXT.no_storage_confirmation.content,
+        'low'
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateRequirementsParagraphs };

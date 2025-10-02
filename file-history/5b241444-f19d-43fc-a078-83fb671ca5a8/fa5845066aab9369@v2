@@ -1,0 +1,291 @@
+const {
+  createRequirementsParagraph,
+  createTableParagraph,
+  createInfoParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Fire safety systems installation and compliance requirements per C/AS2 Table 2.2
+ */
+const TEXT = {
+  overview: {
+    content: "All fire safety systems identified in the compliance assessment shall be designed, installed, commissioned, and maintained in accordance with the relevant New Zealand Standards and C/AS2 requirements."
+  },
+
+  table_title: "Fire Safety System Installation Requirements",
+
+  systems: {
+    type_1: {
+      requirement: "Type 1 domestic smoke alarms shall be installed in accordance with NZS 4514:2021. All smoke alarms shall be interconnected and provided with mains power supply plus battery backup. Installation shall comply with manufacturer specifications and ensure coverage of all required areas per C/AS2 Table 2.2.",
+      standard: "NZS 4514:2021",
+      priority: 'standard'
+    },
+    type_2: {
+      requirement: "Type 2 manual fire alarm system shall be designed and installed throughout the building in accordance with NZS 4512:2010. Manual call points shall be located at all exit points and within 30 metres travel distance from any point within the building. The system shall include an adequate number of sounders to ensure audibility throughout all occupied spaces.",
+      standard: "NZS 4512:2010",
+      priority: 'high'
+    },
+    type_5: {
+      requirement: "Type 5 automatic fire alarm system with modified smoke detection and manual call points shall be installed in accordance with NZS 4512:2010. Smoke detection shall be provided in accordance with C/AS2 Table 2.2 requirements, with detectors located to provide early warning of fire. Manual call points shall be positioned as per Type 2 requirements.",
+      standard: "NZS 4512:2010",
+      priority: 'high'
+    },
+    type_7: {
+      requirement: "Type 7 automatic fire sprinkler system shall be designed and installed throughout the building in accordance with NZS 4541 (or NZS 4515:2009 where eligible per C/AS2 Paragraph 2.2.3). The system shall provide complete coverage of all firecells, with sprinkler heads spaced and positioned to meet the relevant standard requirements. Water supply shall be adequate and reliable.",
+      standard: "NZS 4541 or NZS 4515:2009",
+      priority: 'high'
+    },
+    type_9: {
+      requirement: "Type 9 smoke control system shall be designed and installed to maintain tenable conditions within escape routes during evacuation. The system design shall comply with C/AS2 requirements and be certified by a competent fire engineer. Mechanical smoke control provisions shall be integrated with the building services and fire alarm system.",
+      standard: "C/AS2 Requirements",
+      priority: 'high'
+    },
+    type_15: {
+      requirement: "Type 15 emergency lighting system shall be installed in accordance with NZS 2293.1:1998 and NZS 2293.2:1998. Emergency lighting shall be provided along all escape routes, in all exitways, and at all exit doors. The system shall provide adequate illumination for safe evacuation for the required duration.",
+      standard: "NZS 2293.1:1998, NZS 2293.2:1998",
+      priority: 'standard'
+    },
+    type_18: {
+      requirement: "Type 18 fire hydrant system shall be installed in accordance with SNZ PAS 4509:2008. Hydrant locations shall ensure that hose run distances meet C/AS2 requirements, with adequate water supply and pressure maintained. Fire brigade inlet connections shall be provided in accessible locations.",
+      standard: "SNZ PAS 4509:2008",
+      priority: 'standard'
+    }
+  },
+
+  nzs_4515_substitution: {
+    title: "NZS 4515 Sprinkler System Requirements",
+    content: "Where NZS 4515:2009 life protection sprinkler systems are installed in lieu of Type 7 sprinkler systems per C/AS2 Paragraph 2.2.3, the installation shall comply fully with NZS 4515:2009 including all requirements for domestic and residential sprinklers. For buildings between 500m² and 2000m², additional requirements apply including 60-minute water supply duration, fire brigade alarm connection, and accessible fire sprinkler inlet.",
+    priority: 'high'
+  },
+
+  remote_receiving_centre: {
+    connection_required: "The fire alarm system shall be connected to an approved remote receiving centre in accordance with C/AS2 requirements. Connection shall comply with NZS 4512:2010 specifications for transmission equipment and monitoring. The remote receiving centre shall be capable of notifying Fire and Emergency New Zealand upon alarm activation.",
+    no_connection: "Based on the building configuration (permanent accommodation with escape height less than 10m), connection to a remote receiving centre is not required per C/AS2 Table 2.2 Note 1b. However, the fire alarm system shall still comply with all other requirements of the relevant standards.",
+    priority: 'high'
+  },
+
+  early_childhood_requirements: {
+    supplementary_smoke: "For early childhood centres with sleeping areas and escape height not exceeding 2.0m, supplementary smoke detectors compliant with NZS 4512:2010 shall be installed in all sleeping areas in accordance with C/AS2 Paragraph 2.2.4(a). These detectors shall be integrated with the building's fire alarm system.",
+    places_of_safety: "For early childhood centres with escape height exceeding 2.0m, at least two separate places of safety shall be provided with fire separations designed to the property protection fire resistance rating. Each place of safety shall have direct access to a safe path or final exit in accordance with C/AS2 Paragraph 2.2.4(b)(ii) and (iii).",
+    priority: 'high'
+  },
+
+  commissioning: {
+    content: "All fire safety systems shall be commissioned and tested by competent persons prior to occupation of the building. Commissioning shall verify that all systems operate correctly and meet the requirements of the relevant standards. Producer statements PS1 (design) and PS4 (construction) shall be provided to the building consent authority for all fire safety systems.",
+    priority: 'standard'
+  },
+
+  maintenance: {
+    content: "An ongoing maintenance and testing program shall be established for all fire safety systems in accordance with NZBC Clause F7 and the relevant standards. Maintenance records shall be kept and systems shall be inspected and tested at the intervals specified in the applicable standards. Building owners shall ensure all systems remain functional and compliant throughout the building's operational life.",
+    priority: 'low'
+  },
+
+  competent_installation: {
+    content: "All fire safety system installation work shall be undertaken by licensed and competent tradespersons. Installers shall hold appropriate certifications for the systems being installed. Installation shall be supervised by persons with demonstrated competence in fire safety system design and installation.",
+    priority: 'standard'
+  }
+};
+
+/**
+ * Generate requirements paragraphs for fire safety systems
+ * @param {Object} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateRequirementsParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // Overview
+  paragraphs.push(
+    createInfoParagraph(
+      'Fire Safety Systems Installation Requirements',
+      TEXT.overview.content
+    )
+  );
+
+  // Collect all unique system types across all firecells
+  const systemTypesRequired = new Set();
+  const firecellSystemData = [];
+
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    projectModel.firecells.forEach((firecell, index) => {
+      if (firecell.processedFireSafetySystems && firecell.processedFireSafetySystems.length > 0) {
+        const systemTypes = firecell.processedFireSafetySystems.map(s => s.type);
+        systemTypes.forEach(type => systemTypesRequired.add(type));
+
+        firecellSystemData.push({
+          firecellNum: index + 1,
+          systems: firecell.processedFireSafetySystems
+        });
+      }
+    });
+  }
+
+  // Generate requirements table if systems exist
+  if (systemTypesRequired.size > 0) {
+    const headers = ['System Type', 'Installation Standard', 'Key Requirements'];
+    const rows = [];
+
+    // Sort system types numerically
+    const sortedTypes = Array.from(systemTypesRequired).sort((a, b) => a - b);
+
+    sortedTypes.forEach(type => {
+      const systemKey = `type_${type}`;
+      if (TEXT.systems[systemKey]) {
+        const system = TEXT.systems[systemKey];
+        rows.push([
+          `Type ${type}`,
+          system.standard,
+          system.requirement.substring(0, 150) + '...' // Truncate for table display
+        ]);
+      }
+    });
+
+    paragraphs.push(
+      createTableParagraph(
+        TEXT.table_title,
+        headers,
+        rows
+      )
+    );
+  }
+
+  // Detailed requirements for each system type (high priority first)
+  const highPrioritySystems = [2, 5, 7, 9];
+  const standardPrioritySystems = [1, 15, 18];
+
+  // High priority systems
+  highPrioritySystems.forEach(type => {
+    if (systemTypesRequired.has(type)) {
+      const systemKey = `type_${type}`;
+      if (TEXT.systems[systemKey]) {
+        paragraphs.push(
+          createRequirementsParagraph(
+            `Type ${type} Installation Requirements`,
+            TEXT.systems[systemKey].requirement,
+            TEXT.systems[systemKey].priority
+          )
+        );
+      }
+    }
+  });
+
+  // NZS 4515 substitution requirements (if applicable)
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    const hasNZS4515Substitution = projectModel.firecells.some(fc =>
+      fc.nzs4515SubstitutionInfo &&
+      fc.nzs4515SubstitutionInfo.eligible &&
+      fc.nzs4515SubstitutionInfo.userSelectedSubstitution
+    );
+
+    if (hasNZS4515Substitution) {
+      paragraphs.push(
+        createRequirementsParagraph(
+          TEXT.nzs_4515_substitution.title,
+          TEXT.nzs_4515_substitution.content,
+          TEXT.nzs_4515_substitution.priority
+        )
+      );
+    }
+  }
+
+  // Early childhood centre special requirements
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    projectModel.firecells.forEach((firecell, index) => {
+      if (firecell.riskGroup === 'CA' && firecell.isEarlyChildhoodCentre === true) {
+        const compliance = firecell.fireSafetySystemsCompliance;
+
+        // Supplementary smoke detectors (escape height ≤ 2.0m)
+        if (compliance && compliance.supplementarySmokeDetectors) {
+          paragraphs.push(
+            createRequirementsParagraph(
+              `Early Childhood Centre Requirements - Firecell ${index + 1}`,
+              TEXT.early_childhood_requirements.supplementary_smoke,
+              TEXT.early_childhood_requirements.priority
+            )
+          );
+        }
+
+        // Places of safety (escape height > 2.0m)
+        if (compliance && compliance.placesOfSafety) {
+          paragraphs.push(
+            createRequirementsParagraph(
+              `Places of Safety - Firecell ${index + 1}`,
+              TEXT.early_childhood_requirements.places_of_safety,
+              TEXT.early_childhood_requirements.priority
+            )
+          );
+        }
+      }
+    });
+  }
+
+  // Remote receiving centre requirements
+  if (projectModel.remoteReceivingCentreCompliance) {
+    const rrc = projectModel.remoteReceivingCentreCompliance;
+    const content = rrc.required
+      ? TEXT.remote_receiving_centre.connection_required
+      : TEXT.remote_receiving_centre.no_connection;
+
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Remote Receiving Centre Connection',
+        content,
+        TEXT.remote_receiving_centre.priority
+      )
+    );
+  }
+
+  // Standard priority systems
+  standardPrioritySystems.forEach(type => {
+    if (systemTypesRequired.has(type)) {
+      const systemKey = `type_${type}`;
+      if (TEXT.systems[systemKey]) {
+        paragraphs.push(
+          createRequirementsParagraph(
+            `Type ${type} Installation Requirements`,
+            TEXT.systems[systemKey].requirement,
+            TEXT.systems[systemKey].priority
+          )
+        );
+      }
+    }
+  });
+
+  // Commissioning requirements
+  if (systemTypesRequired.size > 0) {
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Commissioning and Testing',
+        TEXT.commissioning.content,
+        TEXT.commissioning.priority
+      )
+    );
+  }
+
+  // Competent installation requirements
+  if (systemTypesRequired.size > 0) {
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Competent Installation',
+        TEXT.competent_installation.content,
+        TEXT.competent_installation.priority
+      )
+    );
+  }
+
+  // Maintenance requirements (low priority)
+  if (systemTypesRequired.size > 0) {
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Ongoing Maintenance',
+        TEXT.maintenance.content,
+        TEXT.maintenance.priority
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateRequirementsParagraphs };

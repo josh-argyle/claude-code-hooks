@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+require('dotenv').config();
+
+const { getWorkbenchStaffDetails } = require('../../api/workbench/facades/peopleFacade');
+const prisma = require('../../api/utils/prisma');
+const logger = require('../../api/utils/logger');
+
+// ===== MAIN LOGIC =====
+async function runStaffContactSync() {
+  logger.info('Starting staff contact sync job');
+
+  const stats = {
+    totalUsers: 0,
+    contactsUpdated: 0,
+    accountsDeactivated: 0,
+    accountsReactivated: 0,
+    errors: 0,
+    changes: []
+  };
+
+  try {
+    // 1. Get all users with Workbench mapping (both active and inactive)
+    const users = await prisma.users.findMany({
+      where: {
+        workbench_user_id: {
+          not: null
+        }
+      },
+      include: {
+        users_contacts: true
+      }
+    });
+
+    stats.totalUsers = users.length;
+    logger.info(`Found ${users.length} users with Workbench mapping`);
+
+    // 2. Process each user
+    for (const user of users) {
+      try {
+        // Fetch current details from Workbench
+        const workbenchData = await getWorkbenchStaffDetails(user.workbench_user_id);
+
+        if (!workbenchData) {
+          logger.warn(`No data found in Workbench for user ${user.username} (${user.workbench_user_id})`);
+          continue;
+        }
+
+        const changes = [];
+
+        // 3. Check and update contacts (email, phone, position)
+        const currentContacts = user.users_contacts || {};
+        const contactUpdates = {};
+
+        if (workbenchData.emailAddress && workbenchData.emailAddress !== currentContacts.email) {
+          contactUpdates.email = workbenchData.emailAddress;
+          changes.push(`email: "${currentContacts.email || 'null'}" → "${workbenchData.emailAddress}"`);
+        }
+
+        if (workbenchData.mobilePhone && workbenchData.mobilePhone !== currentContacts.phone) {
+          contactUpdates.phone = workbenchData.mobilePhone;
+          changes.push(`phone: "${currentContacts.phone || 'null'}" → "${workbenchData.mobilePhone}"`);
+        }
+
+        if (workbenchData.jobTitle && workbenchData.jobTitle !== currentContacts.position) {
+          contactUpdates.position = workbenchData.jobTitle;
+          changes.push(`position: "${currentContacts.position || 'null'}" → "${workbenchData.jobTitle}"`);
+        }
+
+        // Update contacts if there are changes
+        if (Object.keys(contactUpdates).length > 0) {
+          if (user.users_contacts) {
+            // Update existing contact record
+            await prisma.users_contacts.update({
+              where: { user_id: user.user_id },
+              data: contactUpdates
+            });
+          } else {
+            // Create new contact record
+            await prisma.users_contacts.create({
+              data: {
+                user_id: user.user_id,
+                ...contactUpdates
+              }
+            });
+          }
+          stats.contactsUpdated++;
+        }
+
+        // 4. Check and update active status
+        const shouldBeActive = !workbenchData.inactive;
+
+        if (shouldBeActive !== user.is_active) {
+          await prisma.users.update({
+            where: { user_id: user.user_id },
+            data: { is_active: shouldBeActive }
+          });
+
+          if (shouldBeActive) {
+            changes.push(`status: reactivated account`);
+            stats.accountsReactivated++;
+          } else {
+            changes.push(`status: deactivated account`);
+            stats.accountsDeactivated++;
+          }
+        }
+
+        // 5. Log changes if any
+        if (changes.length > 0) {
+          const changeLog = {
+            user_id: user.user_id,
+            username: user.username,
+            workbench_id: user.workbench_user_id,
+            changes: changes
+          };
+          stats.changes.push(changeLog);
+          logger.info(`Updated user ${user.username}:`, changes);
+        }
+
+      } catch (error) {
+        logger.error(`Error processing user ${user.username} (${user.user_id}):`, error.message);
+        stats.errors++;
+      }
+    }
+
+    // 6. Log summary
+    logger.info('Staff contact sync job complete', {
+      totalUsers: stats.totalUsers,
+      contactsUpdated: stats.contactsUpdated,
+      accountsDeactivated: stats.accountsDeactivated,
+      accountsReactivated: stats.accountsReactivated,
+      errors: stats.errors,
+      changesCount: stats.changes.length
+    });
+
+    if (stats.changes.length > 0) {
+      logger.info('Detailed changes:', JSON.stringify(stats.changes, null, 2));
+    }
+
+    process.exit(0);
+  } catch (error) {
+    logger.error('Staff contact sync job failed:', error);
+    process.exit(1);
+  }
+}
+
+// Run the job
+runStaffContactSync();

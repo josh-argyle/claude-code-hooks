@@ -1,0 +1,101 @@
+const {
+  createTableParagraph,
+  createRequirementsParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * C/AS2 Table 3.1 fire resistance requirements
+ */
+const TEXT = {
+  table_title: "Fire Resistance Requirements (C/AS2 Table 3.1)",
+
+  structural_requirements: (life, property, riskGroup) =>
+    `All structural elements shall provide fire resistance ratings of not less than ${life} minutes for life safety and ${property} minutes for property protection in accordance with C/AS2 Table 3.1 for risk group ${riskGroup}.`,
+
+  implementation_requirements: "Fire resistance ratings shall be achieved through appropriate construction methods and materials. All fire-rated assemblies shall be tested and certified in accordance with relevant New Zealand standards.",
+
+  exitway_requirements: (frr) =>
+    `Exitways shall provide enhanced fire resistance ratings of ${frr} minutes due to escape height exceeding 10 metres. This applies to all load-bearing and fire-separating elements forming part of the exitway in accordance with C/AS2 Table 3.1.`,
+
+  special_requirements_note2: "Special consideration shall be given to boundary distance and storage height requirements as per C/AS2 Table 3.1 Note 2.",
+
+  special_requirements_general: "Design shall comply with all applicable notes in C/AS2 Table 3.1."
+};
+
+/**
+ * Generate requirements paragraphs for fire resistance feature
+ * @param {Object} reportProject - Report project model
+ * @param {Object} calculations - Fire resistance calculations
+ * @returns {Array} Array of paragraph objects
+ */
+function generateRequirementsParagraphs(reportProject, calculations) {
+  const paragraphs = [];
+
+  // 1. Requirements table
+  const headers = ['Building Element', 'Required Life Safety Rating', 'Required Property Rating'];
+  const rows = [
+    ['Structural Elements', `${calculations.life} minutes`, `${calculations.property} minutes`]
+  ];
+
+  // Add exitway requirements if present
+  if (calculations.exitwayFRR) {
+    rows.push(['Exitways', `${calculations.exitwayFRR} minutes`, `${calculations.exitwayFRR} minutes`]);
+  } else {
+    rows.push(['Exitways', 'As per structural elements', 'As per structural elements']);
+  }
+
+  paragraphs.push(
+    createTableParagraph(TEXT.table_title, headers, rows)
+  );
+
+  // 2. Design requirements
+  const riskGroup = reportProject.primaryRiskGroup || reportProject.buildingRiskGroup;
+
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Structural Fire Resistance',
+      TEXT.structural_requirements(calculations.life, calculations.property, riskGroup),
+      'high'
+    )
+  );
+
+  // 3. Implementation requirements
+  paragraphs.push(
+    createRequirementsParagraph(
+      'Fire Rating Implementation',
+      TEXT.implementation_requirements,
+      'standard'
+    )
+  );
+
+  // 4. Add exitway specific requirements if applicable
+  if (calculations.exitwayFRR && calculations.exitwayNote) {
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Exitway Fire Resistance',
+        TEXT.exitway_requirements(calculations.exitwayFRR),
+        'high'
+      )
+    );
+  }
+
+  // 5. Add special conditions if applicable
+  if (calculations.applicableNotes && calculations.applicableNotes.length > 0) {
+    const noteText = calculations.applicableNotes.includes('2')
+      ? TEXT.special_requirements_note2
+      : TEXT.special_requirements_general;
+
+    paragraphs.push(
+      createRequirementsParagraph(
+        'Special Requirements',
+        noteText,
+        'standard'
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateRequirementsParagraphs };

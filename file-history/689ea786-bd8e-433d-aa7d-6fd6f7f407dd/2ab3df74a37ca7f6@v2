@@ -1,0 +1,79 @@
+const {
+  createInfoParagraph,
+  createTableParagraph,
+  createComplianceParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * Adapted from reference documents for C/AS2 compliance
+ */
+const TEXT = {
+  SECTION_TITLE: "Occupant Load Assessment",
+
+  intro: {
+    content: "Occupant loads have been calculated in accordance with C/AS2 requirements using the occupant density factors specified for each space type."
+  },
+
+  summary: (totalLoad) => `The total occupant load for the planned building is ${totalLoad} people.`,
+
+  table_title: "Calculated Occupant Loads by Firecell"
+};
+
+/**
+ * Generate compliance paragraphs for occupant load
+ * @param {ProjectModel} projectModel - The complete project model with all data
+ * @returns {Array} Array of paragraph objects
+ */
+function generateComplianceParagraphs(projectModel) {
+  const paragraphs = [];
+
+  // Introduction
+  paragraphs.push(
+    createInfoParagraph(
+      TEXT.SECTION_TITLE,
+      TEXT.intro.content
+    )
+  );
+
+  // Table of occupant loads per firecell
+  if (projectModel.firecells && projectModel.firecells.length > 0) {
+    const headers = ['Firecell', 'Risk Group', 'Occupant Type', 'Floor Area (m²)', 'Occupant Load'];
+    const rows = [];
+    let totalLoad = 0;
+
+    projectModel.firecells.forEach((firecell, index) => {
+      const load = firecell.occupantLoad || 0;
+      totalLoad += load;
+
+      rows.push([
+        `Firecell ${index + 1}`,
+        firecell.riskGroup || 'Not specified',
+        firecell.occupantType || 'Not specified',
+        (firecell.floorArea || 0).toString(),
+        load.toString()
+      ]);
+    });
+
+    paragraphs.push(
+      createTableParagraph(
+        '',
+        headers,
+        rows
+      )
+    );
+
+    // Summary
+    paragraphs.push(
+      createComplianceParagraph(
+        '',
+        TEXT.summary(totalLoad),
+        'info'
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateComplianceParagraphs };

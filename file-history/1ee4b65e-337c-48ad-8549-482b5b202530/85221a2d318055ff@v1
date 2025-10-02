@@ -1,0 +1,245 @@
+const { test, expect } = require('@playwright/test');
+
+test.describe('Client Information & Document Header Display', () => {
+
+  test('Scenario 1: Complete client information flow', async ({ page }) => {
+    await page.goto('/');
+
+    // Fill C/AS2 scope confirmation
+    await page.check('#confirmedNoComplexFeatures');
+
+    // Fill project and client information
+    await page.fill('#projectName', 'Marina Bay Apartments');
+    await page.fill('#clientName', 'John Smith');
+    await page.fill('#clientAddress', '123 Main Street\nAuckland Central\nAuckland 1010');
+
+    // Fill minimal firecell data
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'CA');
+    await page.selectOption('select[name="firecells[0][occupantType]"]', 'Office spaces');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '8');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'true');
+    await page.fill('input[name="firecells[0][floorArea]"]', '1000');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '2');
+    await page.fill('input[name="firecells[0][maxEscapeRouteOccupants]"]', '50');
+
+    // Add fire safety systems using chip-based selector
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '4');
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '18');
+
+    // Submit form
+    await page.click('button[type="submit"]');
+
+    // Wait for results page
+    await page.waitForURL(/\/results\/\d+/);
+
+    // VERIFY: Document title is correct
+    const documentTitle = page.locator('h1').first();
+    await expect(documentTitle).toContainText('Fire Safety Compliance Document');
+    await expect(documentTitle).not.toContainText('Processing Results');
+
+    // VERIFY: Date is displayed
+    const dateElement = page.locator('.document-date');
+    await expect(dateElement).toBeVisible();
+    // Date should match format "DD Month YYYY" (e.g., "02 October 2025")
+    await expect(dateElement).toContainText(/\d{2} \w+ \d{4}/);
+
+    // VERIFY: Client Information section exists
+    const clientInfoSection = page.locator('.client-info');
+    await expect(clientInfoSection).toBeVisible();
+
+    // VERIFY: Project name is displayed
+    await expect(clientInfoSection).toContainText('Project:');
+    await expect(clientInfoSection).toContainText('Marina Bay Apartments');
+
+    // VERIFY: Client name is displayed
+    await expect(clientInfoSection).toContainText('Client:');
+    await expect(clientInfoSection).toContainText('John Smith');
+
+    // VERIFY: Address is displayed with line breaks preserved
+    await expect(clientInfoSection).toContainText('Address:');
+    await expect(clientInfoSection).toContainText('123 Main Street');
+    await expect(clientInfoSection).toContainText('Auckland Central');
+    await expect(clientInfoSection).toContainText('Auckland 1010');
+
+    // VERIFY: Report title is still present
+    const reportTitle = page.locator('h1').first();
+    await expect(reportTitle).toContainText('Fire Safety Compliance Document');
+  });
+
+  test('Scenario 2: Partial client information (all fields filled)', async ({ page }) => {
+    await page.goto('/');
+
+    await page.check('#confirmedNoComplexFeatures');
+
+    // Fill all client fields
+    await page.fill('#projectName', 'Test Building');
+    await page.fill('#clientName', 'Test Client');
+    await page.fill('#clientAddress', 'Test Address');
+
+    // Fill minimal firecell data
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'CA');
+    await page.selectOption('select[name="firecells[0][occupantType]"]', 'Office spaces');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '5');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'false');
+    await page.fill('input[name="firecells[0][floorArea]"]', '500');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '1');
+    await page.fill('input[name="firecells[0][maxEscapeRouteOccupants]"]', '50');
+
+    // Add fire safety systems
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '4');
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '18');
+
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/results\/\d+/);
+
+    // VERIFY: Client info panel should render when ANY field is present
+    const clientInfoSection = page.locator('.client-info');
+    await expect(clientInfoSection).toBeVisible();
+    await expect(clientInfoSection).toContainText('Test Building');
+  });
+
+  test('Scenario 3: Multi-line address formatting', async ({ page }) => {
+    await page.goto('/');
+
+    await page.check('#confirmedNoComplexFeatures');
+
+    await page.fill('#projectName', 'Complex Address Test');
+    await page.fill('#clientName', 'Multi Line Corp');
+    await page.fill('#clientAddress', 'Level 5, Building A\n123 Queen Street\nAuckland Central\nAuckland 1010\nNew Zealand');
+
+    // Fill minimal firecell
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'WB');
+    // Wait for WB activity type field to appear and select it
+    const wbActivitySelect = page.locator('select[name="firecells[0][wbActivityType]"]');
+    await expect(wbActivitySelect).toBeVisible();
+    await wbActivitySelect.selectOption('professional');
+    await page.selectOption('select[name="firecells[0][occupantType]"]', 'Office spaces');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '10');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'true');
+    await page.fill('input[name="firecells[0][floorArea]"]', '3000');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '3');
+    await page.fill('input[name="firecells[0][maxEscapeRouteOccupants]"]', '100');
+
+    // Add fire safety systems
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '2');
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '18');
+
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/results\/\d+/);
+
+    const clientInfoSection = page.locator('.client-info');
+
+    // VERIFY: All 5 address lines are visible
+    await expect(clientInfoSection).toContainText('Level 5, Building A');
+    await expect(clientInfoSection).toContainText('123 Queen Street');
+    await expect(clientInfoSection).toContainText('Auckland Central');
+    await expect(clientInfoSection).toContainText('Auckland 1010');
+    await expect(clientInfoSection).toContainText('New Zealand');
+  });
+
+  test('Scenario 4: Special characters in names', async ({ page }) => {
+    await page.goto('/');
+
+    await page.check('#confirmedNoComplexFeatures');
+
+    // Test special characters
+    await page.fill('#projectName', "O'Brien's Building - Phase 2 (2025)");
+    await page.fill('#clientName', 'Smith & Jones Ltd.');
+    await page.fill('#clientAddress', 'Unit 7/8, 45-47 High St\nAuckland');
+
+    // Fill minimal firecell
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'SM');
+    await page.selectOption('select[name="firecells[0][sleepingOccupantType]"]', 'permanent');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '12');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'true');
+    await page.fill('input[name="firecells[0][floorArea]"]', '800');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][occupantLoad]"]', '20');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '2');
+    await page.fill('input[name="firecells[0][maxEscapeRouteBeds]"]', '10');
+
+    // Add fire safety systems
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '7');
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '18');
+
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/results\/\d+/);
+
+    const clientInfoSection = page.locator('.client-info');
+
+    // VERIFY: Special characters are preserved
+    await expect(clientInfoSection).toContainText("O'Brien's Building - Phase 2 (2025)");
+    await expect(clientInfoSection).toContainText('Smith & Jones Ltd.');
+    await expect(clientInfoSection).toContainText('Unit 7/8, 45-47 High St');
+  });
+
+  test('Scenario 5: HTML injection prevention', async ({ page }) => {
+    await page.goto('/');
+
+    await page.check('#confirmedNoComplexFeatures');
+
+    // Attempt HTML injection
+    await page.fill('#projectName', '<script>alert("XSS")</script>');
+    await page.fill('#clientName', '<b>Bold Client</b>');
+    await page.fill('#clientAddress', '<a href="evil.com">Click</a>');
+
+    // Fill minimal firecell
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'CA');
+    await page.selectOption('select[name="firecells[0][occupantType]"]', 'Office spaces');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '8');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'true');
+    await page.fill('input[name="firecells[0][floorArea]"]', '1000');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '2');
+    await page.fill('input[name="firecells[0][maxEscapeRouteOccupants]"]', '50');
+
+    // Add fire safety systems
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '4');
+    await page.selectOption('.firecell-item[data-index="0"] .installed-systems-select', '18');
+
+    await page.click('button[type="submit"]');
+    await page.waitForURL(/\/results\/\d+/);
+
+    const clientInfoSection = page.locator('.client-info');
+
+    // VERIFY: HTML is escaped (Pug does this automatically with = syntax)
+    const content = await clientInfoSection.textContent();
+    expect(content).toContain('<script>alert("XSS")</script>'); // Should be literal text
+    expect(content).toContain('<b>Bold Client</b>');
+    expect(content).toContain('<a href="evil.com">Click</a>');
+
+    // VERIFY: No actual HTML elements were created
+    await expect(clientInfoSection.locator('script')).toHaveCount(0);
+    await expect(clientInfoSection.locator('b')).toHaveCount(0);
+    await expect(clientInfoSection.locator('a[href="evil.com"]')).toHaveCount(0);
+  });
+
+  test('Scenario 6: Form validation - required fields', async ({ page }) => {
+    await page.goto('/');
+
+    await page.check('#confirmedNoComplexFeatures');
+
+    // Leave project/client fields empty, fill firecell
+    await page.selectOption('select[name="firecells[0][riskGroup]"]', 'CA');
+    await page.selectOption('select[name="firecells[0][occupantType]"]', 'Office spaces');
+    await page.fill('input[name="firecells[0][escapeHeight]"]', '8');
+    await page.selectOption('select[name="firecells[0][isSprinklered]"]', 'true');
+    await page.fill('input[name="firecells[0][floorArea]"]', '1000');
+    await page.selectOption('select[name="firecells[0][floor]"]', 'G');
+    await page.fill('input[name="firecells[0][numberOfEscapeRoutes]"]', '2');
+
+    // Attempt to submit
+    await page.click('button[type="submit"]');
+
+    // VERIFY: Form does NOT submit (stays on form page due to HTML5 validation)
+    await expect(page).toHaveURL('/');
+
+    // VERIFY: Required field indicators appear (browser native validation)
+    const projectNameInput = page.locator('#projectName');
+    const isInvalid = await projectNameInput.evaluate(el => !el.validity.valid);
+    expect(isInvalid).toBe(true);
+  });
+});

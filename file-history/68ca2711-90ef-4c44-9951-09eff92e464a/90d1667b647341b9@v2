@@ -1,0 +1,16 @@
+/**
+ * Local ESLint Rules
+ * This file exports custom rules from the eslint-rules directory
+ * Used by eslint-plugin-local-rules
+ */
+
+module.exports = {
+  'no-inline-svg-icons': require('./eslint-rules/no-inline-svg-icons'),
+  'no-custom-date-implementation': require('./eslint-rules/no-custom-date-implementation'),
+  'no-duplicate-css-classes': require('./eslint-rules/no-duplicate-css-classes'),
+  'no-button-style-overrides': require('./eslint-rules/no-button-style-overrides'),
+  'no-direct-prisma-client': require('./eslint-rules/no-direct-prisma-client'),
+  'no-custom-modals': require('./eslint-rules/no-custom-modals'),
+  'no-services-in-client-routes': require('./eslint-rules/no-services-in-client-routes'),
+  'require-error-code': require('./eslint-rules/require-error-code')
+};

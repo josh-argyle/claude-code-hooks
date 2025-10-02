@@ -1,0 +1,483 @@
+const userService = require('../services/userService');
+const bcrypt = require('bcryptjs');
+const logger = require('../utils/logger');
+
+const getUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await userService.getUserById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found', code: 'NOT_FOUND' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getAllUsers = async (req, res) => {
+  try {
+    // Check if this is an admin or a switched user who needs user list for switching back
+    const originalUserId = req.session.originalUserId;
+    const userRoles = req.session.roles || [];
+
+    // Allow if user is admin OR if they are a switched user (has originalUserId)
+    const isAdmin = userRoles.includes('admin');
+    const isSwitchedUser = !!originalUserId;
+
+    if (!isAdmin && !isSwitchedUser) {
+      return res.status(403).json({ error: 'Access denied', code: 'ACCESS_DENIED' });
+    }
+
+    // For switched users, check if we have cached user list in session
+    if (isSwitchedUser && req.session.adminUserList) {
+      return res.json(req.session.adminUserList);
+    }
+
+    // Get users and cache them in session for future switches
+    const users = await userService.getUsersByRoles([], [], {
+      allRoles: true,
+      includeEmail: true,
+      includeStatus: true,
+      includeRoleDetails: false // Keep as comma-separated string like original getAllUsers
+    });
+
+    // Cache the user list in session if this is an admin action
+    if (isAdmin) {
+      req.session.adminUserList = users;
+    }
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getCurrentUser = async (req, res) => {
+  try {
+    if (!req.session.userId) {
+      return res.status(401).json({ error: 'User not authenticated', code: 'AUTH_REQUIRED' });
+    }
+
+    const user = await userService.getUserById(req.session.userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found', code: 'NOT_FOUND' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getForemanUsers = async (req, res) => {
+  try {
+    const currentUserId = req.session.userId;
+    const currentProfitCentre = req.session.profit_centre;
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'User not authenticated', code: 'AUTH_REQUIRED' });
+    }
+
+    if (!currentProfitCentre) {
+      return res.status(400).json({ error: 'User profit centre not found in session', code: 'NOT_FOUND' });
+    }
+
+    // Get foreman users in the current user's profit centre from session
+    const users = await userService.getUsersByRoles(['foreman'], [currentProfitCentre], { onlyActive: true });
+    res.json(users);
+  } catch (error) {
+    logger.error('Error in getForemanUsers controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getProjectManagerUsers = async (req, res) => {
+  try {
+    const users = await userService.getUsersByRoles(['project_manager']);
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getInstallerUsers = async (req, res) => {
+  try {
+    const currentUserId = req.session.userId;
+    const currentProfitCentre = req.session.profit_centre;
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'User not authenticated', code: 'AUTH_REQUIRED' });
+    }
+
+    if (!currentProfitCentre) {
+      return res.status(400).json({ error: 'User profit centre not found in session', code: 'NOT_FOUND' });
+    }
+
+    // Get users with 'user' role in current user's profit centre, but exclude supervisory roles
+    // This ensures we only get field workers/installers, not supervisors who also have 'user' role
+    const users = await userService.getUsersByRoles(
+      ['user'],
+      [currentProfitCentre],
+      { excludeRoles: ['foreman', 'project_manager', 'admin'], onlyActive: true, includeRoleDetails: true }
+    );
+    res.json(users);
+  } catch (error) {
+    logger.error('Error in getInstallerUsers controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const switchUser = async (req, res) => {
+  try {
+    const { targetUserId } = req.body;
+    const currentUserId = req.session.userId;
+    const originalUserId = req.session.originalUserId || currentUserId;
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: 'User not authenticated', code: 'AUTH_REQUIRED' });
+    }
+
+    // Check if original user has admin role and username 'admin'
+    const originalUser = await userService.getUserByIdFull(originalUserId);
+    if (!originalUser) {
+      return res.status(404).json({ error: 'Original user not found', code: 'NOT_FOUND' });
+    }
+
+    const hasAdminRole = originalUser.users_roles.some(ur => ur.role.role_name === 'admin');
+    const isAdminUsername = originalUser.username === 'admin';
+    if (!hasAdminRole || !isAdminUsername) {
+      return res.status(403).json({ error: 'Only the admin user can switch accounts', code: 'ACCESS_DENIED' });
+    }
+
+    // Handle switching back to original admin
+    if (targetUserId === 'original') {
+      const adminUser = await userService.getUserByIdFull(originalUserId);
+      if (!adminUser) {
+        return res.status(404).json({ error: 'Original admin user not found', code: 'NOT_FOUND' });
+      }
+
+      req.session.userId = originalUserId;
+      req.session.username = adminUser.username;
+      req.session.roles = adminUser.users_roles.map(ur => ur.role.role_name);
+      delete req.session.originalUserId;
+      // Keep adminUserList for future switches
+
+      return res.json({ message: 'Switched back to original admin user' });
+    }
+
+    // Get target user
+    const targetUser = await userService.getUserByIdFull(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Target user not found', code: 'NOT_FOUND' });
+    }
+
+    // Cache user list if not already cached (for admin switching)
+    if (!req.session.adminUserList) {
+      const allUsers = await userService.getUsersByRoles([], [], {
+        allRoles: true,
+        includeEmail: true,
+        includeStatus: true,
+        includeRoleDetails: false // Keep as comma-separated string like original getAllUsers
+      });
+      req.session.adminUserList = allUsers;
+    }
+
+    // Switch to target user
+    req.session.originalUserId = originalUserId;
+    req.session.userId = targetUser.user_id;
+    req.session.username = targetUser.username;
+    req.session.roles = targetUser.users_roles.map(ur => ur.role.role_name);
+    // Keep adminUserList for switching back
+
+    res.json({ message: 'User switched successfully' });
+  } catch (error) {
+    logger.error('Error in switchUser controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getUserFull = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await userService.getUserByIdFull(id);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found', code: 'NOT_FOUND' });
+    }
+
+    res.json(user);
+  } catch (error) {
+    logger.error('Error in getUserFull controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username, default_profit_centre, is_active } = req.body;
+
+    // Debug logging
+    logger.debug('Update user request:', {
+      id,
+      default_profit_centre,
+      type: typeof default_profit_centre,
+      length: default_profit_centre ? default_profit_centre.length : 0
+    });
+
+    const userData = {};
+    if (username) userData.username = username;
+
+    // Only add default_profit_centre if it's a non-empty string
+    // profit_centre is no longer updatable - managed via staff_profit_centre_assignments
+    if (default_profit_centre &&
+        typeof default_profit_centre === 'string' &&
+        default_profit_centre.trim() !== '') {
+      // Validate the profit centre exists
+      const validProfitCentres = await userService.getAllProfitCentres();
+      const trimmedPC = default_profit_centre.trim();
+      const isValid = validProfitCentres.some(pc => pc.profit_centre_code === trimmedPC);
+
+      if (isValid) {
+        userData.default_profit_centre = trimmedPC;
+      } else {
+        logger.warn(`Invalid profit centre code: "${trimmedPC}"`);
+        // Don't add invalid profit centre to update
+      }
+    }
+
+    if (typeof is_active === 'boolean') userData.is_active = is_active;
+
+    const updatedUser = await userService.updateUser(id, userData);
+    res.json(updatedUser);
+  } catch (error) {
+    logger.error('Error in updateUser controller:', { error: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Username already exists', code: 'BAD_REQUEST' });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUserContacts = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { first_name, surname, position, phone, email } = req.body;
+
+    const contactData = {};
+    if (first_name) contactData.first_name = first_name;
+    if (surname) contactData.surname = surname;
+    if (position) contactData.position = position;
+    if (phone) contactData.phone = phone;
+    if (email) contactData.email = email;
+
+    const updatedContacts = await userService.updateUserContacts(id, contactData);
+    res.json(updatedContacts);
+  } catch (error) {
+    logger.error('Error in updateUserContacts controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUserRoles = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role_ids } = req.body;
+    const assignedBy = req.session.userId;
+
+    if (!Array.isArray(role_ids)) {
+      return res.status(400).json({ error: 'role_ids must be an array', code: 'BAD_REQUEST' });
+    }
+
+    const updatedUser = await userService.updateUserRoles(id, role_ids, assignedBy);
+    res.json(updatedUser);
+  } catch (error) {
+    logger.error('Error in updateUserRoles controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUserPreferences = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { preferences } = req.body;
+
+    if (!preferences || typeof preferences !== 'object') {
+      return res.status(400).json({ error: 'preferences must be an object', code: 'BAD_REQUEST' });
+    }
+
+    const updatedUser = await userService.updateUserPreferences(id, preferences);
+    res.json(updatedUser);
+  } catch (error) {
+    logger.error('Error in updateUserPreferences controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateWorkbenchMapping = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { workbench_user_id, is_active } = req.body;
+
+    if (!workbench_user_id) {
+      return res.status(400).json({ error: 'workbench_user_id is required', code: 'BAD_REQUEST' });
+    }
+
+    const mapping = await userService.updateWorkbenchMapping(id, workbench_user_id, is_active);
+    res.json(mapping);
+  } catch (error) {
+    logger.error('Error in updateWorkbenchMapping controller:', { error: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Workbench user ID already exists', code: 'BAD_REQUEST' });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUserPassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required', code: 'BAD_REQUEST' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long', code: 'BAD_REQUEST' });
+    }
+
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const updatedUser = await userService.updateUserPassword(id, hashedPassword);
+    res.json({ message: 'Password updated successfully', user_id: updatedUser.user_id });
+  } catch (error) {
+    logger.error('Error in updateUserPassword controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const createUser = async (req, res) => {
+  try {
+    const { userData, contactData, role_ids } = req.body;
+    const assignedBy = req.session.userId;
+
+    if (!userData || !userData.username || !userData.password) {
+      return res.status(400).json({ error: 'username and password are required', code: 'MISSING_FIELDS' });
+    }
+
+    if (userData.password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long', code: 'BAD_REQUEST' });
+    }
+
+    // Hash password before creating user
+    userData.password = await bcrypt.hash(userData.password, 10);
+
+    const newUser = await userService.createUser(userData, contactData, role_ids, assignedBy);
+    res.status(201).json(newUser);
+  } catch (error) {
+    logger.error('Error in createUser controller:', { error: error.message });
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Username already exists', code: 'BAD_REQUEST' });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const deactivateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deactivatedUser = await userService.deactivateUser(id);
+    res.json(deactivatedUser);
+  } catch (error) {
+    logger.error('Error in deactivateUser controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getAllRoles = async (req, res) => {
+  try {
+    const roles = await userService.getAllRoles();
+    res.json(roles);
+  } catch (error) {
+    logger.error('Error in getAllRoles controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getAllProfitCentres = async (req, res) => {
+  try {
+    const profitCentres = await userService.getAllProfitCentres();
+    res.json(profitCentres);
+  } catch (error) {
+    logger.error('Error in getAllProfitCentres controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const getUserPurchaseOrderLimit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = await userService.getUserPurchaseOrderLimit(id);
+    res.json(limit);
+  } catch (error) {
+    logger.error('Error in getUserPurchaseOrderLimit controller:', { error: error.message });
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+const updateUserPurchaseOrderLimit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit_amount } = req.body;
+    const setByUserId = req.session.userId;
+
+    // Validate limit_amount
+    if (limit_amount === null || limit_amount === undefined) {
+      return res.status(400).json({ error: 'Limit amount is required', code: 'BAD_REQUEST' });
+    }
+
+    const numericLimit = parseFloat(limit_amount);
+    if (isNaN(numericLimit) || numericLimit < 0 || numericLimit > 99999.99) {
+      return res.status(400).json({ error: 'Limit amount must be between 0 and 99,999.99', code: 'BAD_REQUEST' });
+    }
+
+    const updatedLimit = await userService.updateUserPurchaseOrderLimit(id, numericLimit, setByUserId);
+    res.json(updatedLimit);
+  } catch (error) {
+    logger.error('Error in updateUserPurchaseOrderLimit controller:', { error: error.message });
+    if (error.message === 'User does not have a workbench user ID') {
+      return res.status(400).json({ error: 'User does not have a workbench user ID', code: 'BAD_REQUEST' });
+    }
+    res.status(500).json({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  }
+};
+
+module.exports = {
+  getUser,
+  getAllUsers,
+  getCurrentUser,
+  getForemanUsers,
+  getProjectManagerUsers,
+  getInstallerUsers,
+  switchUser,
+  getUserFull,
+  updateUser,
+  updateUserContacts,
+  updateUserRoles,
+  updateUserPreferences,
+  updateWorkbenchMapping,
+  updateUserPassword,
+  createUser,
+  deactivateUser,
+  getAllRoles,
+  getAllProfitCentres,
+  getUserPurchaseOrderLimit,
+  updateUserPurchaseOrderLimit
+};

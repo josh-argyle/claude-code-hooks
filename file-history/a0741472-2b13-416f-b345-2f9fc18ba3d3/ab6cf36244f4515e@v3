@@ -1,0 +1,2023 @@
+const { getFireSafetySystems } = require('../../api/data');
+const { applyNoteEvaluations } = require('../../api/processors/fire-safety-systems/calculator');
+const { parseSystemCode } = require('../../api/data/services/fire-safety-systems-service');
+
+describe('Fire Safety Systems Integration - Note 4 Early Childhood Centres', () => {
+
+  test('should add Type 7 to CA early childhood centre with escape height > 2.0m', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: true,
+      occupantLoad: 30,
+      escapeHeight: 2.5,
+      placesOfSafetyCompliant: true
+    };
+
+    // Get base systems for CA with 30 occupants and 2.5m escape height
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Apply note evaluations (Note 4 should add Type 7)
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 7 should be in final systems
+    expect(result.systems).toContain('7');
+
+    // Compliance info should be populated
+    expect(result.complianceInfo.placesOfSafety).toEqual({
+      minimumRequired: 2,
+      requiresFireSeparations: true,
+      requiresDirectAccessToSafePath: true,
+      compliant: true,
+      paragraph: '2.2.4(b)(ii)&(iii)'
+    });
+
+    // Verify Type 7 is present in final systems
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+    expect(hasType7).toBe(true);
+  });
+
+  test('should NOT add Type 7 when escape height ≤ 2.0m', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: true,
+      occupantLoad: 30,
+      escapeHeight: 1.8,
+      hasDedicatedSleepingAreas: true,
+      supplementarySmokeDetectorsCompliant: true
+    };
+
+    // Get base systems for CA with 30 occupants and 1.8m escape height
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Apply note evaluations (Note 4 should NOT add Type 7)
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 7 should NOT be added (unless already in base systems, which it shouldn't be for this config)
+    // Base systems for CA with 30 occupants and 1.8m height: ['2', '18^2']
+    // Note 4 should track smoke detector compliance but NOT add Type 7
+    expect(result.complianceInfo.supplementarySmokeDetectors).toEqual({
+      required: true,
+      location: 'Dedicated sleeping areas',
+      standard: 'NZS 4512',
+      compliant: true,
+      paragraph: '2.2.4(a)'
+    });
+
+    // Places of safety should NOT be tracked (condition b doesn't apply)
+    expect(result.complianceInfo.placesOfSafety).toBeNull();
+  });
+
+  test('should not duplicate Type 7 if already in base systems', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: true,
+      occupantLoad: 1500, // High occupant load - base systems may include Type 7
+      escapeHeight: 3.0,
+      placesOfSafetyCompliant: true
+    };
+
+    // Get base systems for CA with high occupant load (should include Type 7)
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Apply note evaluations (Note 4 will try to add Type 7)
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Count Type 7 occurrences
+    const type7Count = result.systems.filter(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    }).length;
+
+    // Should only have ONE Type 7, not duplicated
+    expect(type7Count).toBe(1);
+  });
+
+  test('should handle boundary case: exactly 2.0m (condition a applies)', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: true,
+      occupantLoad: 30,
+      escapeHeight: 2.0, // Exactly 2.0m
+      hasDedicatedSleepingAreas: true,
+      supplementarySmokeDetectorsCompliant: true
+    };
+
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Condition (a) should apply (≤ 2.0m), NOT condition (b)
+    expect(result.complianceInfo.supplementarySmokeDetectors).toBeDefined();
+    expect(result.complianceInfo.placesOfSafety).toBeNull();
+
+    // Type 7 should NOT be added
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+    // Base systems for CA with 30 occupants and 2.0m don't include Type 7
+    expect(hasType7).toBe(false);
+  });
+
+  test('should handle boundary case: 2.01m (condition b applies)', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: true,
+      occupantLoad: 30,
+      escapeHeight: 2.01, // Just over 2.0m
+      placesOfSafetyCompliant: true
+    };
+
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Condition (b) should apply (> 2.0m)
+    expect(result.complianceInfo.placesOfSafety).toBeDefined();
+    expect(result.complianceInfo.supplementarySmokeDetectors).toBeNull();
+
+    // Type 7 should be added
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+    expect(hasType7).toBe(true);
+  });
+
+  test('should not affect non-early childhood CA buildings', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      isEarlyChildhoodCentre: false, // Not an early childhood centre
+      occupantLoad: 30,
+      escapeHeight: 3.0
+    };
+
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Note 4 should not apply
+    expect(result.complianceInfo.supplementarySmokeDetectors).toBeNull();
+    expect(result.complianceInfo.placesOfSafety).toBeNull();
+
+    // Systems should be same as base systems (no Type 7 added by Note 4)
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+
+    // Base systems for CA with 30 occupants and 3.0m: ['4^5', '9', '18^2']
+    // Type 7 should NOT be in there
+    expect(hasType7).toBe(false);
+  });
+});
+
+describe('Fire Safety Systems Integration - Foundation Tests', () => {
+
+  test('should process fire safety systems for single firecell', () => {
+    const firecell = {
+      riskGroup: 'CA',
+      occupantLoad: 150,
+      escapeHeight: 3.0
+    };
+
+    // Get base systems for CA with 150 occupants and 3.0m escape height
+    const baseSystems = getFireSafetySystems('CA', {
+      occupantLoad: firecell.occupantLoad,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Apply note evaluations
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Verify systems array is populated
+    expect(result.systems).toBeDefined();
+    expect(Array.isArray(result.systems)).toBe(true);
+    expect(result.systems.length).toBeGreaterThan(0);
+
+    // Verify compliance info object exists
+    expect(result.complianceInfo).toBeDefined();
+    expect(typeof result.complianceInfo).toBe('object');
+  });
+
+  test('should process multiple firecells of same risk group', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 50,
+        escapeHeight: 3.0
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 150,
+        escapeHeight: 5.0
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 500,
+        escapeHeight: 15.0
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Verify each has independent systems
+    results.forEach((result, index) => {
+      expect(result.systems).toBeDefined();
+      expect(result.systems.length).toBeGreaterThan(0);
+    });
+
+    // Verify systems are different for different parameters
+    // First firecell (50 occupants, 3m) vs second (150 occupants, 5m) should differ
+    expect(results[0].systems).not.toEqual(results[1].systems);
+  });
+
+  test('should process multi-risk building (all 6 risk groups)', () => {
+    const firecells = [
+      {
+        riskGroup: 'SM',
+        occupantType: 'permanent',
+        occupantLoad: 15,
+        escapeHeight: 5.0
+      },
+      {
+        riskGroup: 'SI',
+        occupantType: 'careOrDetention',
+        occupantLoad: 80,
+        escapeHeight: 8.0
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 150,
+        escapeHeight: 5.0
+      },
+      {
+        riskGroup: 'WB',
+        occupantLoad: 50,
+        escapeHeight: 3.0
+      },
+      {
+        riskGroup: 'WS',
+        occupantLoad: 500,
+        escapeHeight: 6.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0,
+        hasVehicleStacker: false
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      // SM/SI use occupantType, others use occupantLoad
+      const params = fc.riskGroup === 'SM' || fc.riskGroup === 'SI'
+        ? { occupantType: fc.occupantType, escapeHeight: fc.escapeHeight }
+        : fc.riskGroup === 'VP'
+          ? { escapeHeight: fc.escapeHeight, hasVehicleStacker: fc.hasVehicleStacker }
+          : { occupantLoad: fc.occupantLoad, escapeHeight: fc.escapeHeight };
+
+      const baseSystems = getFireSafetySystems(fc.riskGroup, params);
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Verify all risk groups get appropriate systems
+    expect(results).toHaveLength(6);
+    results.forEach((result, index) => {
+      expect(result.systems).toBeDefined();
+      expect(result.systems.length).toBeGreaterThan(0);
+    });
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 1a SM Bed Exemption', () => {
+
+  test('should exempt Type 2 for SM with ≤10 beds (note 1a)', () => {
+    const firecell = {
+      riskGroup: 'SM',
+      occupantType: 'permanent',
+      sleepingOccupantType: 'permanent',
+      occupantLoad: 8,
+      escapeHeight: 5.0,
+      maxEscapeRouteBeds: 8
+    };
+
+    // Get base systems for SM permanent with 5.0m escape height
+    const baseSystems = getFireSafetySystems('SM', {
+      occupantType: firecell.occupantType,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Base systems should be ['1', '2^1a', '18^2']
+    expect(baseSystems).toContain('2^1a');
+
+    // Apply note evaluations
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 2 should be REMOVED (≤10 beds)
+    const hasType1 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 1;
+    });
+    expect(hasType1).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(false);
+  });
+
+  test('should require Type 2 for SM with >10 beds', () => {
+    const firecell = {
+      riskGroup: 'SM',
+      occupantType: 'permanent',
+      sleepingOccupantType: 'permanent',
+      occupantLoad: 15,
+      escapeHeight: 5.0,
+      maxEscapeRouteBeds: 15
+    };
+
+    // Get base systems for SM permanent with 5.0m escape height
+    const baseSystems = getFireSafetySystems('SM', {
+      occupantType: firecell.occupantType,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Base systems should be ['1', '2^1a', '18^2']
+    expect(baseSystems).toContain('2^1a');
+
+    // Apply note evaluations
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 2 should REMAIN (>10 beds)
+    const hasType1 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 1;
+    });
+    expect(hasType1).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(true);
+  });
+
+  test('should exempt Type 2 for SM with direct exit (note 1a)', () => {
+    const firecell = {
+      riskGroup: 'SM',
+      occupantType: 'permanent',
+      sleepingOccupantType: 'permanent',
+      occupantLoad: 20,
+      escapeHeight: 5.0,
+      maxEscapeRouteBeds: 20,
+      exitDirectlyToSafePlace: true
+    };
+
+    // Get base systems for SM permanent with 5.0m escape height
+    const baseSystems = getFireSafetySystems('SM', {
+      occupantType: firecell.occupantType,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Base systems should be ['1', '2^1a', '18^2']
+    expect(baseSystems).toContain('2^1a');
+
+    // Apply note evaluations
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 2 should be REMOVED (direct exit exemption)
+    const hasType1 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 1;
+    });
+    expect(hasType1).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(false);
+  });
+
+  test('should exempt Type 5 for transient with ≤10 beds at ground level (note 1a)', () => {
+    const firecell = {
+      riskGroup: 'SM',
+      occupantType: 'transient',
+      sleepingOccupantType: 'transient',
+      occupantLoad: 5,
+      escapeHeight: 0,  // Must be 0 to get '5^1a' system code
+      maxEscapeRouteBeds: 5
+    };
+
+    // Get base systems for SM transient with 0m escape height
+    const baseSystems = getFireSafetySystems('SM', {
+      occupantType: firecell.occupantType,
+      escapeHeight: firecell.escapeHeight
+    });
+
+    // Base systems should be ['5^1a', '18^2'] (transient at 0m, line 89)
+    expect(baseSystems).toContain('5^1a');
+    expect(baseSystems).toContain('18^2');
+
+    // Apply note evaluations
+    const result = applyNoteEvaluations(baseSystems, firecell, {}, []);
+
+    // Type 5 should be REMOVED (exempt for ≤10 beds + <4m height)
+    const hasType5 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 5;
+    });
+    expect(hasType5).toBe(false);
+
+    // Only Type 18 should remain
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+
+    // NOTE: Calculator currently doesn't track requiresType1SmokeAlarms in complianceInfo
+    // This is a known limitation - Type 1 smoke alarms ARE required per CAS2 Table 2.2 Note 1a
+    // but the compliance tracking for this specific requirement is not yet implemented
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 1b CA Single Level Exemption', () => {
+
+  test('should exempt Type 2 for single-level CA with ≤50 occupants (note 1b)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 40,
+        escapeHeight: 0,
+        floor: '1',
+        maxEscapeRouteOccupants: 40
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 30,
+        escapeHeight: 0,
+        floor: '1',
+        maxEscapeRouteOccupants: 30
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      // Base systems should be ['2^1b', '18^2'] for both
+      expect(baseSystems).toContain('2^1b');
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Type 2 should be REMOVED from BOTH firecells (single level + all ≤50)
+    results.forEach(result => {
+      const hasType2 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 2;
+      });
+      expect(hasType2).toBe(false);
+
+      const hasType18 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 18;
+      });
+      expect(hasType18).toBe(true);
+    });
+  });
+
+  test('should require Type 2 when CA firecells on different floors (note 1b)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 40,
+        escapeHeight: 0,
+        floor: '1',
+        maxEscapeRouteOccupants: 40
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 40,
+        escapeHeight: 0,
+        floor: '2',
+        maxEscapeRouteOccupants: 40
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      // Base systems should be ['2^1b', '18^2'] for both
+      expect(baseSystems).toContain('2^1b');
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Type 2 should REMAIN in BOTH firecells (multi-level building)
+    results.forEach(result => {
+      const hasType2 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 2;
+      });
+      expect(hasType2).toBe(true);
+
+      const hasType18 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 18;
+      });
+      expect(hasType18).toBe(true);
+    });
+  });
+
+  test('should require Type 2 when ANY CA exceeds 50 occupants (note 1b)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 30,
+        escapeHeight: 0,
+        floor: '1',
+        maxEscapeRouteOccupants: 30
+      },
+      {
+        riskGroup: 'CA',
+        occupantLoad: 60,
+        escapeHeight: 0,
+        floor: '1',
+        maxEscapeRouteOccupants: 60
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      // Base systems should be ['2^1b', '18^2'] for both
+      expect(baseSystems).toContain('2^1b');
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Type 2 should REMAIN in BOTH firecells (one exceeds 50 occupants)
+    results.forEach(result => {
+      const hasType2 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 2;
+      });
+      expect(hasType2).toBe(true);
+
+      const hasType18 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 18;
+      });
+      expect(hasType18).toBe(true);
+    });
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 1c WB Single Level Small Building Exemption', () => {
+
+  test('should exempt Type 2 for single-level WB with <3m storage ≤50 occupants (note 1c)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 40,
+        escapeHeight: 3.0,
+        floor: 'G',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40
+      },
+      {
+        riskGroup: 'WB',
+        occupantLoad: 30,
+        escapeHeight: 3.0,
+        floor: 'G',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 30
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      // Base systems should be ['2^1c-7', '18^2'] for both
+      expect(baseSystems).toContain('2^1c-7');
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Type 2 should be REMOVED from BOTH firecells (single level + storage <3m + all ≤50)
+    results.forEach(result => {
+      const hasType2 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 2;
+      });
+      expect(hasType2).toBe(false);
+
+      const hasType18 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 18;
+      });
+      expect(hasType18).toBe(true);
+
+      // Note 7 doesn't add Type 3 because storage ≤3m
+      const hasType3 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 3;
+      });
+      expect(hasType3).toBe(false);
+    });
+  });
+
+  test('should require Type 2 when storage height ≥3m (note 1c)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 40,
+        escapeHeight: 3.0,
+        floor: 'G',
+        maxStorageHeight: 3.5,
+        maxEscapeRouteOccupants: 40
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2']
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 2 should REMAIN (storage ≥3m)
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(true);
+
+    // Note 7 should ADD Type 3 (storage >3m, 40 occupants in 10-99 range)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+  });
+
+  test('should require Type 2 for multi-level WB (note 1c)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 40,
+        escapeHeight: 3.0,
+        floor: 'G',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40
+      },
+      {
+        riskGroup: 'WB',
+        occupantLoad: 40,
+        escapeHeight: 6.0,
+        floor: '1',
+        maxStorageHeight: 2.5,
+        maxEscapeRouteOccupants: 40
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // Type 2 should REMAIN in first firecell (multi-level building)
+    const hasType2_fc1 = results[0].systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2_fc1).toBe(true);
+
+    // Second firecell has different base systems due to 6m height
+    // Expected: ['4^5', '9', '18^2'] → after note eval: ['4', '9', '18']
+    const hasType4_fc2 = results[1].systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 4;
+    });
+    expect(hasType4_fc2).toBe(true);
+
+    const hasType9_fc2 = results[1].systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 9;
+    });
+    expect(hasType9_fc2).toBe(true);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 1d VP Small Parking Exemption', () => {
+
+  test('should exempt Type 2 for VP with <50 occupants and <10 vehicles (note 1d)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        escapeHeight: 5.0,
+        vehicleCount: 8
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // Base systems should be ['2^1d-9-10', '18^2']
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 2 should be REMOVED (<50 occupants AND <10 vehicles)
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(false);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+  });
+
+  test('should require Type 2 when VP has ≥50 occupants (note 1d)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 60,
+        escapeHeight: 5.0,
+        vehicleCount: 5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // Base systems should be ['2^1d-9-10', '18^2']
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 2 should REMAIN (≥50 occupants)
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+  });
+
+  test('should require Type 2 when VP has ≥10 vehicles (note 1d)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        escapeHeight: 5.0,
+        vehicleCount: 15,
+        isSprinklered: false
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // Base systems should be ['2^1d-9-10', '18^2']
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 2 should REMAIN (≥10 vehicles)
+    const hasType2 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 2;
+    });
+    expect(hasType2).toBe(true);
+
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+
+    // Note 9: ventilation should be required (>10 vehicles, unsprinklered)
+    // Check if ventilationRequired is tracked
+    if (result.complianceInfo.ventilationRequired !== undefined) {
+      expect(result.complianceInfo.ventilationRequired).toBe(true);
+    }
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 2 Fire Hydrant Exemption', () => {
+
+  test('should exempt Type 18 for all firecells when FENZ conditions met (note 2)', () => {
+    const projectModel = {
+      fenzAccessHeightUnder15m: true,
+      fenzHoseRunUnder75m: true
+    };
+
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 150,
+        escapeHeight: 5.0
+      },
+      {
+        riskGroup: 'WB',
+        occupantLoad: 50,
+        escapeHeight: 3.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        escapeHeight: 5.0
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      let baseSystems;
+      if (fc.riskGroup === 'VP') {
+        baseSystems = getFireSafetySystems(fc.riskGroup, {
+          escapeHeight: fc.escapeHeight,
+          hasVehicleStacker: false
+        });
+      } else {
+        baseSystems = getFireSafetySystems(fc.riskGroup, {
+          occupantLoad: fc.occupantLoad,
+          escapeHeight: fc.escapeHeight
+        });
+      }
+
+      // All should have Type 18 with note 2
+      const hasType18WithNote = baseSystems.some(sys => sys.includes('18^'));
+      expect(hasType18WithNote).toBe(true);
+
+      return applyNoteEvaluations(baseSystems, fc, projectModel, firecells);
+    });
+
+    // Type 18 should be REMOVED from ALL firecells (FENZ conditions met)
+    results.forEach(result => {
+      const hasType18 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 18;
+      });
+      expect(hasType18).toBe(false);
+    });
+
+    // CA should have ['4', '9']
+    expect(results[0].systems.length).toBeGreaterThan(0);
+    // WB should have ['2'] (Note 1c doesn't apply without floor/storage data)
+    expect(results[1].systems.length).toBeGreaterThan(0);
+    // VP should have ['2'] (Note 1d doesn't apply without vehicleCount)
+    expect(results[2].systems.length).toBeGreaterThan(0);
+  });
+
+  test('should require Type 18 when FENZ conditions not met (note 2)', () => {
+    const projectModel = {
+      fenzAccessHeightUnder15m: false,  // Height ≥15m
+      fenzHoseRunUnder75m: true
+    };
+
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 150,
+        escapeHeight: 5.0
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, projectModel, firecells);
+
+    // Type 18 should REMAIN (FENZ conditions not met)
+    const hasType18 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 18;
+    });
+    expect(hasType18).toBe(true);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 3 SI Dual Water Supply', () => {
+
+  test('should track dual water supply requirement for SI >100 care/detention (note 3)', () => {
+    const firecells = [
+      {
+        riskGroup: 'SI',
+        occupantType: 'careOrDetention',
+        occupantLoad: 150,
+        escapeHeight: 8.0,
+        hospitalCareDetentionCount: 150
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantType: fc.occupantType,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['7^3', '9', '18^2']
+    expect(baseSystems).toContain('7^3');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+    expect(hasType7).toBe(true);
+
+    // Compliance info should indicate dual water supply required
+    expect(result.complianceInfo.dualWaterSupply).toBe(true);
+  });
+
+  test('should not require dual supply for SI ≤100 (note 3)', () => {
+    const firecells = [
+      {
+        riskGroup: 'SI',
+        occupantType: 'careOrDetention',
+        occupantLoad: 80,
+        escapeHeight: 8.0,
+        hospitalCareDetentionCount: 80
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantType: fc.occupantType,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['7^3', '9', '18^2']
+    expect(baseSystems).toContain('7^3');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    const hasType7 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 7;
+    });
+    expect(hasType7).toBe(true);
+
+    // Compliance info should indicate dual water supply NOT required
+    expect(result.complianceInfo.dualWaterSupply).toBe(false);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 5 Type 4 Substitution', () => {
+
+  test('should allow Type 4 substitution for CA challenging smoke (note 5)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 300,
+        escapeHeight: 3.0,
+        challengingSmokeEnvironment: true
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['4^5', '18^2'] (251-1000 occupants, <4m height)
+    expect(baseSystems).toContain('4^5');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    const hasType4 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 4;
+    });
+    expect(hasType4).toBe(true);
+
+    // Compliance info should indicate Type 4 substitution allowed
+    expect(result.complianceInfo.type4SubstitutionAllowed).toBe(true);
+  });
+
+  test('should allow Type 4 substitution for WB challenging smoke (note 5)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 150,
+        escapeHeight: 3.0,
+        challengingSmokeEnvironment: true
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['4^5-8', '18^2'] (100-1000 occupants, <4m height)
+    expect(baseSystems).toContain('4^5-8');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    const hasType4 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 4;
+    });
+    expect(hasType4).toBe(true);
+
+    // Compliance info should indicate Type 4 substitution allowed
+    expect(result.complianceInfo.type4SubstitutionAllowed).toBe(true);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 6 WB Storage Height Compliance', () => {
+
+  test('should track storage height compliance for WB (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'storage',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 7.5,
+        totalFloorArea: 3000
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2'] (<100 occupants, <4m height)
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should include Type 3 (Note 7 adds it for >3m storage)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(true);
+
+    // Compliance info should indicate storage height is compliant
+    // 7.5m storage (5-8m range) with 3000m² (≤4200m²) is compliant per Table 1.1
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should track non-compliance for WB exceeding area limits (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'storage',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 7.5,
+        totalFloorArea: 5000
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2']
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Compliance info should indicate non-compliance (5000m² exceeds 4200m² limit)
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should track non-compliance for storage >8m apex (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'storage',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 9.0,
+        totalFloorArea: 3000
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2']
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Compliance info should indicate non-compliance (9.0m exceeds 8.0m apex limit)
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 6 WB Activity Type Storage Limits', () => {
+
+  test('should reject professional WB with ≥3.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'professional',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 3.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Professional WB limited to <3.0m storage per Table 1.1
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should accept professional WB with <3.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'professional',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 2.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should reject industrial WB with ≥3.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'industrial',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 3.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Industrial WB limited to <3.0m storage per Table 1.1
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should accept industrial WB with <3.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'industrial',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 2.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should accept storage WB with 4.5m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'storage',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Storage WB allows ≤5.0m with no floor area restrictions
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should reject temperature controlled WB with >5.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'temperatureControlled',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 5.5,
+        totalFloorArea: 300
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Temperature controlled WB limited to ≤5.0m storage per Table 1.1
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should accept temperature controlled WB with 4.0m storage and ≤500m² (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'temperatureControlled',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.0,
+        totalFloorArea: 400
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Temperature controlled WB with 3.0m-5.0m storage limited to 500m²
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should reject temperature controlled WB with 4.0m storage and >500m² (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'temperatureControlled',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.0,
+        totalFloorArea: 600
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Temperature controlled WB with 3.0m-5.0m storage exceeds 500m² limit
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should accept intermittent WB with any storage height (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'intermittent',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 10.0  // No specific limit for intermittent
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Intermittent WB has no specific storage height requirements per Table 1.1
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+  test('should require wbActivityType for WB firecells (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        // wbActivityType is MISSING
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.0
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Should return non-compliant when wbActivityType is missing
+    expect(result.complianceInfo.storageHeightCompliant).toBe(false);
+  });
+
+  test('should accept temperature controlled WB with <3.0m storage (note 6)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        wbActivityType: 'temperatureControlled',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 2.8
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Temperature controlled WB with <3.0m storage has no restrictions
+    expect(result.complianceInfo.storageHeightCompliant).toBe(true);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 8 Type 3 Alternative', () => {
+
+  test('should allow Type 3 alternative for WB 100-1000 with >3m storage (note 8)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 500,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['4^5-8', '18^2'] (100-1000 occupants, <4m height)
+    expect(baseSystems).toContain('4^5-8');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    const hasType4 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 4;
+    });
+    expect(hasType4).toBe(true);
+
+    // Compliance info should indicate Type 3 alternative is allowed
+    // (100-1000 occupants + >3m storage)
+    expect(result.complianceInfo.type3AlternativeAllowed).toBe(true);
+  });
+
+  test('should not allow for WB outside 100-1000 range (note 8)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2'] (<100 occupants, <4m height)
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Note 8 does NOT apply (<100 occupants, outside 100-1000 range)
+    // Compliance info should be false or undefined
+    expect(result.complianceInfo.type3AlternativeAllowed).toBeFalsy();
+
+    // Note 7 should still add Type 3 for >3m storage
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(true);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 9 VP Ventilation', () => {
+
+  test('should require ventilation for unsprinklered VP >10 vehicles (note 9)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 15,
+        escapeHeight: 5.0,
+        vehicleCount: 15,
+        isSprinklered: false,
+        hasCrossVentilation: false
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // Base systems should be ['2^1d-9-10', '18^2'] (<10m height)
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Systems should be UNCHANGED (compliance tracking only)
+    // Compliance info should indicate ventilation is required but not compliant
+    expect(result.complianceInfo.ventilationRequired).toBe(true);
+    expect(result.complianceInfo.ventilationCompliant).toBe(false);
+  });
+
+  test('should not require ventilation for sprinklered VP (note 9)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 15,
+        escapeHeight: 5.0,
+        vehicleCount: 15,
+        isSprinklered: true
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // Base systems should be ['2^1d-9-10', '18^2']
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Ventilation should NOT be required (sprinklered)
+    expect(result.complianceInfo.ventilationRequired).toBe(false);
+    expect(result.complianceInfo.ventilationCompliant).toBe(true);
+  });
+
+  test('CROSS-FIRECELL: should require ventilation for ALL VP when one triggers (note 9)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0,
+        vehicleCount: 5,
+        isSprinklered: false,
+        hasCrossVentilation: false
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 15,
+        escapeHeight: 5.0,
+        vehicleCount: 15,
+        isSprinklered: false,
+        hasCrossVentilation: false
+      }
+    ];
+
+    const results = firecells.map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        escapeHeight: fc.escapeHeight,
+        hasVehicleStacker: false
+      });
+
+      // CRITICAL: Pass allFirecells for cross-firecell evaluation
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // BOTH VP firecells should have ventilationRequired = true
+    // (second firecell triggers with >10 vehicles, applies to all VP firecells)
+    expect(results[0].complianceInfo.ventilationRequired).toBe(true);
+    expect(results[1].complianceInfo.ventilationRequired).toBe(true);
+
+    // Both should be non-compliant (no ventilation)
+    expect(results[0].complianceInfo.ventilationCompliant).toBe(false);
+    expect(results[1].complianceInfo.ventilationCompliant).toBe(false);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 10 Multi-Risk Type 3 Addition', () => {
+
+  test('CROSS-FIRECELL: should add Type 3 to VP when other risk groups have fire alarms (note 10)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 300,
+        escapeHeight: 3.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0
+      }
+    ];
+
+    // Process CA first to establish its systems
+    const caBaseSystems = getFireSafetySystems(firecells[0].riskGroup, {
+      occupantLoad: firecells[0].occupantLoad,
+      escapeHeight: firecells[0].escapeHeight
+    });
+
+    // CA base systems: ['4^5', '18^2'] (has Type 4 fire alarm)
+    expect(caBaseSystems).toContain('4^5');
+
+    const caResult = applyNoteEvaluations(caBaseSystems, firecells[0], {}, firecells);
+
+    // Update CA firecell with processed systems for Note 10 evaluation
+    firecells[0].fireSafetySystems = caResult.systems;
+
+    // Now process VP with CA's systems available
+    const vpBaseSystems = getFireSafetySystems(firecells[1].riskGroup, {
+      escapeHeight: firecells[1].escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // VP base systems: ['2^1d-9-10', '18^2'] (no fire alarm)
+    expect(vpBaseSystems).toContain('2^1d-9-10');
+
+    // Update VP firecell for evaluation
+    firecells[1].fireSafetySystems = vpBaseSystems;
+
+    const vpResult = applyNoteEvaluations(vpBaseSystems, firecells[1], {}, firecells);
+
+    // Type 3 should be ADDED to VP (CA has Type 4 fire alarm)
+    const hasType3 = vpResult.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(true);
+
+    // VP should have ['2', '3', '18'] (or similar with Type 3 added)
+    expect(vpResult.systems).toContain('3');
+  });
+
+  test('should not add Type 3 to VP when no other firecells have fire alarms (note 10)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // VP base systems: ['2^1d-9-10', '18^2']
+    expect(baseSystems).toContain('2^1d-9-10');
+
+    // Set VP systems before evaluation
+    fc.fireSafetySystems = baseSystems;
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should NOT be added (VP-only building, no other firecells)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+  test('CROSS-FIRECELL: should add Type 3 to ALL VP firecells in multi-risk building (note 10)', () => {
+    const firecells = [
+      {
+        riskGroup: 'CA',
+        occupantLoad: 300,
+        escapeHeight: 3.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 15,
+        escapeHeight: 5.0
+      }
+    ];
+
+    // Process CA first
+    const caBaseSystems = getFireSafetySystems(firecells[0].riskGroup, {
+      occupantLoad: firecells[0].occupantLoad,
+      escapeHeight: firecells[0].escapeHeight
+    });
+
+    const caResult = applyNoteEvaluations(caBaseSystems, firecells[0], {}, firecells);
+    firecells[0].fireSafetySystems = caResult.systems;
+
+    // Process both VP firecells
+    const vpResults = [firecells[1], firecells[2]].map(fc => {
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        escapeHeight: fc.escapeHeight,
+        hasVehicleStacker: false
+      });
+      fc.fireSafetySystems = baseSystems;
+      return applyNoteEvaluations(baseSystems, fc, {}, firecells);
+    });
+
+    // BOTH VP firecells should have Type 3 added
+    vpResults.forEach(result => {
+      const hasType3 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 3;
+      });
+      expect(hasType3).toBe(true);
+      expect(result.systems).toContain('3');
+    });
+  });
+
+  test('should not add Type 3 to VP when only other VP has fire alarms (note 10)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 30,
+        escapeHeight: 15.0
+      },
+      {
+        riskGroup: 'VP',
+        occupantLoad: 10,
+        escapeHeight: 5.0
+      }
+    ];
+
+    // Process VP1 (high escape height - has Type 3)
+    const vp1BaseSystems = getFireSafetySystems(firecells[0].riskGroup, {
+      escapeHeight: firecells[0].escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // VP1 base systems: ['3^9', '15', '18^2'] (has Type 3 fire alarm)
+    expect(vp1BaseSystems).toContain('3^9');
+
+    const vp1Result = applyNoteEvaluations(vp1BaseSystems, firecells[0], {}, firecells);
+    firecells[0].fireSafetySystems = vp1Result.systems;
+
+    // Process VP2
+    const vp2BaseSystems = getFireSafetySystems(firecells[1].riskGroup, {
+      escapeHeight: firecells[1].escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    // VP2 base systems: ['2^1d-9-10', '18^2'] (no fire alarm)
+    expect(vp2BaseSystems).toContain('2^1d-9-10');
+
+    firecells[1].fireSafetySystems = vp2BaseSystems;
+
+    const vp2Result = applyNoteEvaluations(vp2BaseSystems, firecells[1], {}, firecells);
+
+    // Type 3 should NOT be added to VP2
+    // (Note 10 only looks at NON-VP firecells, no other risk groups present)
+    const hasType3 = vp2Result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+});
+
+describe('Fire Safety Systems Integration - Note 7 WB Storage Type 3 Addition', () => {
+
+  test('should add Type 3 for WB 10-99 occupants with >3m storage (note 7)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['2^1c-7', '18^2']
+    expect(baseSystems).toContain('2^1c-7');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should be ADDED (10-99 occupants + >3m storage)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(true);
+  });
+
+  test('should NOT add Type 3 for WB with ≤3m storage (note 7)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 50,
+        escapeHeight: 3.0,
+        maxStorageHeight: 2.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should NOT be added (storage ≤3m)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+  test('should NOT add Type 3 for WB with <10 occupants (note 7)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 5,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should NOT be added (<10 occupants)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+  test('should NOT add Type 3 for WB with ≥100 occupants (note 7)', () => {
+    const firecells = [
+      {
+        riskGroup: 'WB',
+        occupantLoad: 120,
+        escapeHeight: 3.0,
+        maxStorageHeight: 4.5
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      occupantLoad: fc.occupantLoad,
+      escapeHeight: fc.escapeHeight
+    });
+
+    // Base systems should be ['4^5-8', '18^2'] for 100+ occupants
+    expect(baseSystems).toContain('4^5-8');
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should NOT be added (≥100 occupants, Note 7 only applies to 10-99)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+  test('should add Type 3 at exact boundaries (note 7)', () => {
+    const testCases = [
+      { occupantLoad: 10, maxStorageHeight: 3.01, expectType3: true },  // Lower boundary occupants, just over 3m
+      { occupantLoad: 99, maxStorageHeight: 3.01, expectType3: true },  // Upper boundary occupants, just over 3m
+      { occupantLoad: 50, maxStorageHeight: 3.0, expectType3: false },  // Exactly 3m (NOT >3m)
+    ];
+
+    testCases.forEach(({ occupantLoad, maxStorageHeight, expectType3 }) => {
+      const firecells = [
+        {
+          riskGroup: 'WB',
+          occupantLoad,
+          escapeHeight: 3.0,
+          maxStorageHeight
+        }
+      ];
+
+      const fc = firecells[0];
+      const baseSystems = getFireSafetySystems(fc.riskGroup, {
+        occupantLoad: fc.occupantLoad,
+        escapeHeight: fc.escapeHeight
+      });
+
+      const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+      const hasType3 = result.systems.some(sys => {
+        const parsed = parseSystemCode(sys);
+        return parsed.type === 3;
+      });
+
+      expect(hasType3).toBe(expectType3);
+    });
+  });
+
+  test('should NOT apply to non-WB risk groups (note 7)', () => {
+    const firecells = [
+      {
+        riskGroup: 'VP',
+        occupantLoad: 50,
+        escapeHeight: 5.0,
+        maxStorageHeight: 4.5  // Would trigger Note 7 if it were WB
+      }
+    ];
+
+    const fc = firecells[0];
+    const baseSystems = getFireSafetySystems(fc.riskGroup, {
+      escapeHeight: fc.escapeHeight,
+      hasVehicleStacker: false
+    });
+
+    const result = applyNoteEvaluations(baseSystems, fc, {}, firecells);
+
+    // Type 3 should NOT be added (Note 7 only applies to WB)
+    const hasType3 = result.systems.some(sys => {
+      const parsed = parseSystemCode(sys);
+      return parsed.type === 3;
+    });
+    expect(hasType3).toBe(false);
+  });
+
+});

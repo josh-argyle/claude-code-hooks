@@ -1,0 +1,159 @@
+const { generateComplianceParagraphs } = require('../../../../api/processors/firecells/compliance-generator');
+const ProjectModel = require('../../../../api/models/project-model');
+
+describe('Firecells Compliance Generator', () => {
+  test('should return array of paragraphs', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: false,
+      floorArea: 400,
+      floor: 'G'
+    });
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  test('should include C/AS2 intro paragraph', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: false,
+      floorArea: 400,
+      floor: 'G'
+    });
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const intro = result.find(p => p.type === 'info');
+    expect(intro).toBeDefined();
+    expect(intro.content).toContain('C/AS2');
+    expect(intro.content).toContain('firecell');
+  });
+
+  test('should create table with firecell summary', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: false,
+      floorArea: 400,
+      floor: 'G'
+    });
+    // Add compliance data (normally done by processor)
+    projectModel.firecells[0].firecellCompliance = {
+      effectiveLimit: '5000^2',
+      isCompliant: true,
+      reason: 'within_limit'
+    };
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const table = result.find(p => p.type === 'table');
+    expect(table).toBeDefined();
+    expect(table.content.headers).toContain('Firecell');
+    expect(table.content.headers).toContain('Risk Group');
+    expect(table.content.headers).toContain('Sprinklered');
+    expect(table.content.headers).toContain('Floor Area (m²)');
+    expect(table.content.rows.length).toBe(1);
+  });
+
+  test('should create warning for non-compliant floor area', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: false,
+      floorArea: 600,
+      floor: 'G'
+    });
+    // Add non-compliant data
+    projectModel.firecells[0].firecellCompliance = {
+      effectiveLimit: '5000^2',
+      isCompliant: false,
+      reason: 'exceeds_limit'
+    };
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const warning = result.find(p => p.type === 'warning');
+    expect(warning).toBeDefined();
+    expect(warning.content).toContain('600');
+    expect(warning.content).toContain('500');
+    expect(warning.content).toContain('C/AS2 Table 2.1');
+  });
+
+  test('should handle empty firecells array', () => {
+    const projectModel = new ProjectModel();
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    expect(Array.isArray(result)).toBe(true);
+    // Should still have intro paragraph
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  test('should include compliance status in table', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: true,
+      floorArea: 400,
+      floor: 'G'
+    });
+    projectModel.firecells[0].firecellCompliance = {
+      effectiveLimit: 'Unlimited^1',
+      isCompliant: true,
+      reason: 'sprinklered'
+    };
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    const table = result.find(p => p.type === 'table');
+    expect(table.content.headers).toContain('Floor Area Compliance');
+    expect(table.content.rows[0]).toContain('✓ Compliant');
+  });
+
+  test('all paragraphs should have required structure', () => {
+    const projectModel = new ProjectModel();
+    projectModel.addFirecell({
+      riskGroup: 'WB',
+      occupantType: 'Office spaces',
+      occupantLoad: 50,
+      escapeHeight: 8,
+      isSprinklered: false,
+      floorArea: 400,
+      floor: 'G'
+    });
+    projectModel.firecells[0].firecellCompliance = {
+      effectiveLimit: '5000^2',
+      isCompliant: true,
+      reason: 'within_limit'
+    };
+
+    const result = generateComplianceParagraphs(projectModel);
+
+    result.forEach(paragraph => {
+      expect(paragraph).toHaveProperty('title');
+      expect(paragraph).toHaveProperty('type');
+      expect(paragraph).toHaveProperty('content');
+      expect(paragraph).toHaveProperty('timestamp');
+    });
+  });
+});

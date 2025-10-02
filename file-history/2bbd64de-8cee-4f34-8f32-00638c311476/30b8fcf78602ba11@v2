@@ -1,0 +1,691 @@
+// Form functionality for dynamic firecell management
+let firecellCount = 1;
+
+// Floor options utilities (browser-compatible version)
+function getFloorOptions(numberOfFloorsAboveGround = 1, numberOfBasementLevels = 0) {
+  const floors = [];
+
+  // Add basement levels (from deepest to shallowest)
+  for (let i = numberOfBasementLevels; i >= 1; i--) {
+    floors.push(`B${i}`);
+  }
+
+  // Add ground floor (always present)
+  floors.push('G');
+
+  // Add floors above ground
+  for (let i = 1; i <= numberOfFloorsAboveGround; i++) {
+    floors.push(String(i));
+  }
+
+  return floors;
+}
+
+function getFloorLabel(floor) {
+  if (floor === 'G') {
+    return 'Ground Floor';
+  }
+
+  if (floor.startsWith('B')) {
+    const level = floor.substring(1);
+    return `Basement Level ${level}`;
+  }
+
+  const floorNum = parseInt(floor);
+  if (!isNaN(floorNum)) {
+    const suffix = getOrdinalSuffix(floorNum);
+    return `${floorNum}${suffix} Floor`;
+  }
+
+  return floor;
+}
+
+function getOrdinalSuffix(num) {
+  const j = num % 10;
+  const k = num % 100;
+
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+}
+
+function updateFloorPreview() {
+  const floorsAbove = parseInt(document.getElementById('numberOfFloorsAboveGround').value) || 0;
+  const basements = parseInt(document.getElementById('numberOfBasementLevels').value) || 0;
+
+  const floors = getFloorOptions(floorsAbove, basements);
+  const preview = floors.map(f => `${f} (${getFloorLabel(f)})`).join(', ');
+
+  const previewElement = document.getElementById('floorPreview');
+  if (previewElement) {
+    previewElement.textContent = preview;
+  }
+
+  // Update all firecell floor dropdowns
+  updateAllFirecellFloorOptions(floors);
+}
+
+function updateAllFirecellFloorOptions(floors) {
+  const floorSelects = document.querySelectorAll('.firecell-floor');
+
+  floorSelects.forEach(select => {
+    const currentValue = select.value;
+
+    // Clear existing options except placeholder
+    select.innerHTML = '<option value="">-- Select Floor --</option>';
+
+    // Add floor options with labels
+    floors.forEach(floor => {
+      const option = document.createElement('option');
+      option.value = floor;
+      option.textContent = `${floor} (${getFloorLabel(floor)})`;
+
+      if (floor === currentValue) {
+        option.selected = true;
+      }
+
+      select.appendChild(option);
+    });
+  });
+}
+
+/**
+ * Updates the Occupant Load label based on risk group
+ * SM/SI risk groups use "Bed Spaces" per CAS2 Table 1.2
+ * Other risk groups use "Occupant Load"
+ *
+ * @param {HTMLElement} firecellElement - The firecell container div
+ * @param {string} riskGroup - The selected risk group (SM, SI, CA, WB, WS, VP, or empty string)
+ */
+function updateOccupantLoadLabel(firecellElement, riskGroup) {
+  // Find the occupant load input
+  const occupantLoadInput = firecellElement.querySelector('input[name*="occupantLoad"]');
+  if (!occupantLoadInput) {
+    // Input not found - this is OK (might not exist yet)
+    return;
+  }
+
+  // Find the label - it's in the parent div
+  const parentDiv = occupantLoadInput.closest('div');
+  const label = parentDiv ? parentDiv.querySelector('label') : null;
+
+  if (!label) {
+    // Label not found - this shouldn't happen but handle gracefully
+    return;
+  }
+
+  // Update label text and input attributes based on risk group
+  if (riskGroup === 'SM' || riskGroup === 'SI') {
+    // SM/SI: Use "Bed Spaces" per CAS2 Section 1.4.5 and Table 1.2
+    label.textContent = 'Bed Spaces:';
+    occupantLoadInput.setAttribute('title',
+      'Number of beds (accounts for staff and visitors per CAS2 1.4.5)');
+    occupantLoadInput.setAttribute('placeholder', 'e.g., 10 beds');
+  } else {
+    // CA/WB/WS/VP: Use standard "Occupant Load"
+    label.textContent = 'Occupant Load:';
+    occupantLoadInput.setAttribute('title', 'Number of occupants');
+    occupantLoadInput.setAttribute('placeholder', 'e.g., 50 people');
+  }
+}
+
+/**
+ * Updates occupant load field visibility based on risk group
+ * SM/SI: Shows manual "Bed Spaces" input
+ * CA/WB/WS/VP: Shows calculated occupant load (read-only display)
+ *
+ * @param {HTMLElement} firecellElement - The firecell container
+ * @param {string} riskGroup - Selected risk group
+ */
+function updateOccupantLoadFields(firecellElement, riskGroup) {
+  const smSiFields = firecellElement.querySelector('.sm-si-only');
+  const calculatedFields = firecellElement.querySelector('.calculated-occupant-load');
+
+  if (!smSiFields || !calculatedFields) return;
+
+  if (riskGroup === 'SM' || riskGroup === 'SI') {
+    // Show bed spaces input, hide calculated
+    smSiFields.style.display = 'block';
+    calculatedFields.style.display = 'none';
+
+    // Make bed spaces input required
+    const input = smSiFields.querySelector('input');
+    if (input) input.required = true;
+  } else if (['CA', 'WB', 'WS', 'VP'].includes(riskGroup)) {
+    // Hide bed spaces, show calculated (optional UX)
+    smSiFields.style.display = 'none';
+    calculatedFields.style.display = 'block';
+
+    // Remove required from bed spaces
+    const input = smSiFields.querySelector('input');
+    if (input) {
+      input.required = false;
+      input.value = ''; // Clear value
+    }
+
+    // Note: Actual calculation happens server-side
+    // This is just for user feedback
+  } else {
+    // No risk group selected - hide both
+    smSiFields.style.display = 'none';
+    calculatedFields.style.display = 'none';
+  }
+}
+
+function addFirecell() {
+  const container = document.getElementById('firecellsContainer');
+  const index = firecellCount;
+
+  const firecellDiv = document.createElement('div');
+  firecellDiv.className = 'firecell-item';
+  firecellDiv.setAttribute('data-index', index);
+
+  // Get the current occupant types from the first firecell
+  const firstFirecell = document.querySelector('.firecell-item');
+  const occupantSelect = firstFirecell.querySelector('select[name*="occupantType"]');
+
+  const occupantOptions = Array.from(occupantSelect.options).map(opt =>
+    `<option value="${opt.value}">${opt.text}</option>`
+  ).join('');
+
+  const riskGroupOptions = `
+    <option value="">-- Select Risk Group --</option>
+    <option value="SM">SM</option>
+    <option value="SI">SI</option>
+    <option value="CA">CA</option>
+    <option value="WB">WB</option>
+    <option value="WS">WS</option>
+    <option value="VP">VP</option>
+  `;
+
+  firecellDiv.innerHTML = `
+    <h3>Firecell ${index + 1}</h3>
+
+    <div>
+      <label>Risk Group:</label>
+      <select name="firecells[${index}][riskGroup]" required>
+        ${riskGroupOptions}
+      </select>
+    </div>
+
+    <div>
+      <label>Occupant Type:</label>
+      <select name="firecells[${index}][occupantType]" required>
+        ${occupantOptions}
+      </select>
+    </div>
+
+    <div class="sm-si-only" style="display: none;">
+      <label>Bed Spaces:</label>
+      <input class="bed-spaces-input" type="number" name="firecells[${index}][occupantLoad]" min="0" step="1" title="Number of beds (accounts for staff and visitors per CAS2 1.4.5)" placeholder="e.g., 10 beds">
+    </div>
+
+    <div class="calculated-occupant-load" style="display: none;">
+      <label>Calculated Occupant Load:</label>
+      <input type="text" readonly disabled title="Auto-calculated from floor area and activity type per CAS2 Table 1.2" placeholder="Will be calculated automatically" style="background-color: #f0f0f0; cursor: not-allowed;">
+      <p style="font-size: 0.9em; color: #666; font-style: italic; margin-top: 5px;">Per CAS2 Section 1.4.2, occupant load is calculated automatically from floor area and activity type</p>
+    </div>
+
+    <div>
+      <label>Escape Height (m):</label>
+      <input type="number" name="firecells[${index}][escapeHeight]" min="0" step="0.1" required>
+    </div>
+
+    <div>
+      <label>Is Sprinklered:</label>
+      <select name="firecells[${index}][isSprinklered]" required>
+        <option value="">-- Select --</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Floor Area (m²):</label>
+      <input type="number" name="firecells[${index}][floorArea]" min="0.1" step="0.1" required>
+    </div>
+
+    <div>
+      <label>Floor:</label>
+      <select class="firecell-floor" name="firecells[${index}][floor]" required title="Select which floor this firecell is located on. Required for single-level building checks (Notes 1b and 1c).">
+        <option value="">-- Select Floor --</option>
+      </select>
+    </div>
+
+    <div class="vp-only" style="display: none;">
+      <label>Has Vehicle Stacker:</label>
+      <select name="firecells[${index}][hasVehicleStacker]">
+        <option value="">-- Select --</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    </div>
+
+    <div class="ca-only" style="display: none;">
+      <label>Is Cinema or Theatre:</label>
+      <select name="firecells[${index}][isCinemaOrTheatre]">
+        <option value="">-- Select --</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+
+      <div>
+        <label>Is Early Childhood Centre:</label>
+        <select class="early-childhood-toggle" name="firecells[${index}][isEarlyChildhoodCentre]">
+          <option value="">-- Select --</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="early-childhood-low-height" style="display: none;">
+      <p class="info-message" style="font-style: italic; color: #666; margin: 10px 0;">CAS2 2.2.4(a) - Single storey early childhood centre requirements</p>
+      <div>
+        <label>Has Dedicated Sleeping Areas:</label>
+        <select class="sleeping-areas-toggle" name="firecells[${index}][hasDedicatedSleepingAreas]">
+          <option value="">-- Select --</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+      <div class="sleeping-area-fields" style="display: none;">
+        <label title="Required for dedicated sleeping areas in single-storey early childhood centres per NZS 4512">Supplementary smoke detectors compliant with NZS 4512:</label>
+        <select name="firecells[${index}][supplementarySmokeDetectorsCompliant]">
+          <option value="">-- Select --</option>
+          <option value="true">Yes - Compliant</option>
+          <option value="false">No - Non-compliant</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="early-childhood-high-height" style="display: none;">
+      <div>
+        <label title="Two separate places of safety with fire separations and direct access to safe path/final exit per CAS2 2.2.4(b)(ii)&(iii)">Two separate places of safety with fire separations and direct access:</label>
+        <select name="firecells[${index}][placesOfSafetyCompliant]">
+          <option value="">-- Select --</option>
+          <option value="true">Yes - Compliant</option>
+          <option value="false">No - Non-compliant</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="remove-firecell" type="button" data-index="${index}">Remove Firecell</button>
+  `;
+
+  container.appendChild(firecellDiv);
+
+  // Populate floor options for the new firecell
+  const floorsAbove = parseInt(document.getElementById('numberOfFloorsAboveGround').value) || 1;
+  const basements = parseInt(document.getElementById('numberOfBasementLevels').value) || 0;
+  const floors = getFloorOptions(floorsAbove, basements);
+  const newFloorSelect = firecellDiv.querySelector('.firecell-floor');
+  if (newFloorSelect) {
+    floors.forEach(floor => {
+      const option = document.createElement('option');
+      option.value = floor;
+      option.textContent = `${floor} (${getFloorLabel(floor)})`;
+      newFloorSelect.appendChild(option);
+    });
+  }
+
+  // Add event listener to the new risk group select
+  const newRiskGroupSelect = firecellDiv.querySelector('select[name*="riskGroup"]');
+  newRiskGroupSelect.addEventListener('change', function() {
+    toggleConditionalFields(this);
+  });
+
+  // Initialize occupant load label for new firecell (defaults to "Occupant Load")
+  updateOccupantLoadLabel(firecellDiv, '');
+
+  // Initialize occupant load field visibility for new firecell
+  updateOccupantLoadFields(firecellDiv, '');
+
+  // Add event listeners for early childhood fields
+  const earlyChildhoodToggle = firecellDiv.querySelector('.early-childhood-toggle');
+  if (earlyChildhoodToggle) {
+    earlyChildhoodToggle.addEventListener('change', function() {
+      toggleEarlyChildhoodFields(firecellDiv);
+    });
+  }
+
+  const escapeHeightInput = firecellDiv.querySelector('input[name*="escapeHeight"]');
+  if (escapeHeightInput) {
+    escapeHeightInput.addEventListener('change', function() {
+      toggleEarlyChildhoodFields(firecellDiv);
+    });
+  }
+
+  const sleepingAreasToggle = firecellDiv.querySelector('.sleeping-areas-toggle');
+  if (sleepingAreasToggle) {
+    sleepingAreasToggle.addEventListener('change', function() {
+      toggleSleepingAreaFields(firecellDiv);
+    });
+  }
+
+  // Add event listener to the remove button
+  const removeButton = firecellDiv.querySelector('.remove-firecell');
+  removeButton.addEventListener('click', function() {
+    removeFirecell(this.getAttribute('data-index'));
+  });
+
+  firecellCount++;
+  updateRemoveButtons();
+}
+
+function removeFirecell(index) {
+  const firecell = document.querySelector(`[data-index="${index}"]`);
+  if (firecell) {
+    firecell.remove();
+    updateRemoveButtons();
+    updateFirecellTitles();
+  }
+}
+
+function updateRemoveButtons() {
+  const firecells = document.querySelectorAll('.firecell-item');
+  const removeButtons = document.querySelectorAll('.remove-firecell');
+
+  removeButtons.forEach(button => {
+    button.style.display = firecells.length > 1 ? 'inline-block' : 'none';
+  });
+}
+
+function updateFirecellTitles() {
+  const firecells = document.querySelectorAll('.firecell-item');
+  firecells.forEach((firecell, index) => {
+    const title = firecell.querySelector('h3');
+    if (title) {
+      title.textContent = `Firecell ${index + 1}`;
+    }
+  });
+}
+
+function toggleConditionalFields(selectElement) {
+  const firecell = selectElement.closest('.firecell-item');
+  const vpFields = firecell.querySelector('.vp-only');
+  const caFields = firecell.querySelector('.ca-only');
+
+  // Hide all conditional fields first
+  if (vpFields) vpFields.style.display = 'none';
+  if (caFields) caFields.style.display = 'none';
+
+  // Show relevant fields based on risk group
+  if (selectElement.value === 'VP' && vpFields) {
+    vpFields.style.display = 'block';
+  } else if (selectElement.value === 'CA' && caFields) {
+    caFields.style.display = 'block';
+  }
+
+  // Update occupant load label based on risk group (SM/SI use "Bed Spaces")
+  updateOccupantLoadLabel(firecell, selectElement.value);
+
+  // Update occupant load field visibility (hide input for CA/WB/WS/VP)
+  updateOccupantLoadFields(firecell, selectElement.value);
+}
+
+function toggleEarlyChildhoodFields(firecell) {
+  const earlyChildhoodSelect = firecell.querySelector('.early-childhood-toggle');
+  const escapeHeightInput = firecell.querySelector('input[name*="escapeHeight"]');
+  const lowHeightSection = firecell.querySelector('.early-childhood-low-height');
+  const highHeightSection = firecell.querySelector('.early-childhood-high-height');
+
+  if (!earlyChildhoodSelect || !lowHeightSection || !highHeightSection) {
+    return; // Elements not found (may not be CA risk group)
+  }
+
+  const isEarlyChildhood = earlyChildhoodSelect.value === 'true';
+  const escapeHeight = parseFloat(escapeHeightInput?.value || 0);
+
+  // Hide both sections by default
+  lowHeightSection.style.display = 'none';
+  highHeightSection.style.display = 'none';
+
+  if (isEarlyChildhood) {
+    if (escapeHeight <= 2.0) {
+      // Condition (a): Show low height section
+      lowHeightSection.style.display = 'block';
+      // Clear high height fields
+      clearEarlyChildhoodFields(highHeightSection);
+    } else {
+      // Condition (b): Show high height section
+      highHeightSection.style.display = 'block';
+      // Clear low height fields
+      clearEarlyChildhoodFields(lowHeightSection);
+    }
+  } else {
+    // Not an early childhood centre - clear all fields
+    clearEarlyChildhoodFields(lowHeightSection);
+    clearEarlyChildhoodFields(highHeightSection);
+  }
+}
+
+function clearEarlyChildhoodFields(section) {
+  if (!section) return;
+  const selects = section.querySelectorAll('select');
+  selects.forEach(select => {
+    select.value = '';
+  });
+}
+
+function toggleSleepingAreaFields(firecell) {
+  const sleepingAreasSelect = firecell.querySelector('.sleeping-areas-toggle');
+  const sleepingAreaFields = firecell.querySelector('.sleeping-area-fields');
+
+  if (!sleepingAreasSelect || !sleepingAreaFields) {
+    return;
+  }
+
+  if (sleepingAreasSelect.value === 'true') {
+    sleepingAreaFields.style.display = 'block';
+  } else {
+    sleepingAreaFields.style.display = 'none';
+    // Clear the smoke detector compliance field
+    const complianceSelect = sleepingAreaFields.querySelector('select[name*="supplementarySmokeDetectorsCompliant"]');
+    if (complianceSelect) {
+      complianceSelect.value = '';
+    }
+  }
+}
+
+function fillTestData() {
+  // Remove all firecells except the first one
+  const allFirecells = document.querySelectorAll('.firecell-item');
+  for (let i = allFirecells.length - 1; i > 0; i--) {
+    const firecell = allFirecells[i];
+    firecell.remove();
+  }
+
+  // Reset the firecell counter
+  firecellCount = 1;
+
+  updateRemoveButtons();
+  updateFirecellTitles();
+
+  // Fill project-level fields (from scripts/pipeline-test.js)
+  document.getElementById('hasRemoteReceivingCentreConnection').value = 'false';
+  document.getElementById('storesHazardousGoods').value = 'false';
+  document.getElementById('confirmedNoComplexFeatures').checked = true; // C/AS2 scope confirmation
+
+  // Fill building vertical structure (2 floors: ground and 1st floor)
+  document.getElementById('numberOfFloorsAboveGround').value = '1';
+  document.getElementById('numberOfBasementLevels').value = '0';
+  updateFloorPreview();
+
+  // Fill first firecell - ground floor CA office
+  const firstFirecell = document.querySelector('.firecell-item');
+  if (firstFirecell) {
+    // Risk group
+    const riskGroupSelect = firstFirecell.querySelector('select[name*="riskGroup"]');
+    riskGroupSelect.value = 'CA';
+    toggleConditionalFields(riskGroupSelect); // Show CA conditional fields
+
+    // Occupant type
+    const occupantTypeSelect = firstFirecell.querySelector('select[name*="occupantType"]');
+    occupantTypeSelect.value = 'Office spaces';
+
+    // Occupant load - REMOVED: Will be calculated automatically for CA risk group
+    // Per CAS2 Section 1.4.2, occupant load is calculated from floor area (400m²) and
+    // activity type (Office spaces @ 10 m²/person) = 400/10 = 40 people
+
+    // Escape height - ground floor
+    const escapeHeightInput = firstFirecell.querySelector('input[name*="escapeHeight"]');
+    escapeHeightInput.value = 0;
+
+    // Is sprinklered
+    const isSprinkleredSelect = firstFirecell.querySelector('select[name*="isSprinklered"]');
+    isSprinkleredSelect.value = 'false';
+
+    // Floor area
+    const floorAreaInput = firstFirecell.querySelector('input[name*="floorArea"]');
+    floorAreaInput.value = 400;
+
+    // Floor - ground floor
+    const floorSelect = firstFirecell.querySelector('.firecell-floor');
+    if (floorSelect) {
+      floorSelect.value = 'G';
+    }
+
+    // CA-specific field (is cinema or theatre) - set to No
+    const isCinemaSelect = firstFirecell.querySelector('select[name*="isCinemaOrTheatre"]');
+    if (isCinemaSelect) {
+      isCinemaSelect.value = 'false';
+    }
+
+    // CA-specific field (is early childhood centre) - set to No
+    const isEarlyChildhoodSelect = firstFirecell.querySelector('.early-childhood-toggle');
+    if (isEarlyChildhoodSelect) {
+      isEarlyChildhoodSelect.value = 'false';
+    }
+  }
+
+  // Add second firecell - upstairs SM residential
+  addFirecell();
+
+  // Wait for DOM to update, then fill the second firecell
+  setTimeout(() => {
+    const allFirecells = document.querySelectorAll('.firecell-item');
+    const secondFirecell = allFirecells[1];
+
+    if (secondFirecell) {
+      // Risk group
+      const riskGroupSelect = secondFirecell.querySelector('select[name*="riskGroup"]');
+      riskGroupSelect.value = 'SM';
+      toggleConditionalFields(riskGroupSelect);
+
+      // Occupant type
+      const occupantTypeSelect = secondFirecell.querySelector('select[name*="occupantType"]');
+      occupantTypeSelect.value = 'Sleeping non institutional';
+
+      // Occupant load (bed spaces for SM risk group)
+      const occupantLoadInput = secondFirecell.querySelector('input[name*="occupantLoad"]');
+      occupantLoadInput.value = 10; // 10 beds (e.g., 10-bed hostel/boarding house)
+
+      // Escape height - upstairs
+      const escapeHeightInput = secondFirecell.querySelector('input[name*="escapeHeight"]');
+      escapeHeightInput.value = 4;
+
+      // Is sprinklered
+      const isSprinkleredSelect = secondFirecell.querySelector('select[name*="isSprinklered"]');
+      isSprinkleredSelect.value = 'false';
+
+      // Floor area
+      const floorAreaInput = secondFirecell.querySelector('input[name*="floorArea"]');
+      floorAreaInput.value = 200;
+
+      // Floor - upstairs (1st floor)
+      const floorSelect = secondFirecell.querySelector('.firecell-floor');
+      if (floorSelect) {
+        floorSelect.value = '1';
+      }
+    }
+  }, 100);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize the form
+  updateRemoveButtons();
+
+  // Initialize floor options on page load
+  updateFloorPreview();
+
+  // Add event listeners for floor configuration changes
+  const floorsAboveInput = document.getElementById('numberOfFloorsAboveGround');
+  const basementsInput = document.getElementById('numberOfBasementLevels');
+
+  if (floorsAboveInput) {
+    floorsAboveInput.addEventListener('change', updateFloorPreview);
+    floorsAboveInput.addEventListener('input', updateFloorPreview);
+  }
+
+  if (basementsInput) {
+    basementsInput.addEventListener('change', updateFloorPreview);
+    basementsInput.addEventListener('input', updateFloorPreview);
+  }
+
+  // Add event listener to the add button
+  const addButton = document.getElementById('addFirecell');
+  if (addButton) {
+    addButton.addEventListener('click', addFirecell);
+  }
+
+  // Add event listener to fill test data button
+  const fillTestDataButton = document.getElementById('fillTestData');
+  if (fillTestDataButton) {
+    fillTestDataButton.addEventListener('click', fillTestData);
+  }
+
+  // Add event listeners to existing risk group selects
+  const existingSelects = document.querySelectorAll('select[name*="riskGroup"]');
+  existingSelects.forEach(select => {
+    select.addEventListener('change', function() {
+      toggleConditionalFields(this);
+    });
+
+    // Initialize label for existing firecells based on current selection
+    const firecell = select.closest('.firecell-item');
+    if (firecell) {
+      updateOccupantLoadLabel(firecell, select.value);
+
+      // Initialize field visibility for existing firecells
+      updateOccupantLoadFields(firecell, select.value);
+    }
+  });
+
+  // Add event listeners to existing early childhood toggles
+  const existingEarlyChildhoodToggles = document.querySelectorAll('.early-childhood-toggle');
+  existingEarlyChildhoodToggles.forEach(toggle => {
+    toggle.addEventListener('change', function() {
+      const firecell = this.closest('.firecell-item');
+      toggleEarlyChildhoodFields(firecell);
+    });
+  });
+
+  // Add event listeners to existing escape height inputs
+  const existingEscapeHeightInputs = document.querySelectorAll('input[name*="escapeHeight"]');
+  existingEscapeHeightInputs.forEach(input => {
+    input.addEventListener('change', function() {
+      const firecell = this.closest('.firecell-item');
+      toggleEarlyChildhoodFields(firecell);
+    });
+  });
+
+  // Add event listeners to existing sleeping areas toggles
+  const existingSleepingAreasToggles = document.querySelectorAll('.sleeping-areas-toggle');
+  existingSleepingAreasToggles.forEach(toggle => {
+    toggle.addEventListener('change', function() {
+      const firecell = this.closest('.firecell-item');
+      toggleSleepingAreaFields(firecell);
+    });
+  });
+
+  // Add event listeners to existing remove buttons
+  const existingRemoveButtons = document.querySelectorAll('.remove-firecell');
+  existingRemoveButtons.forEach(button => {
+    button.addEventListener('click', function() {
+      const index = this.closest('.firecell-item').getAttribute('data-index');
+      removeFirecell(index);
+    });
+  });
+});

@@ -1,0 +1,41 @@
+/**
+ * Note 2 Evaluator - Type 18 Hydrant System Exemption
+ *
+ * From CAS2 Table 2.2 Note 2:
+ * "Not required where the height from Fire and Emergency New Zealand vehicular access
+ * to any floor is less than 15 m and Fire and Emergency New Zealand hose run distance
+ * to any point on any floor is less than 75 m, as measured from Fire and Emergency
+ * New Zealand vehicular access."
+ *
+ * @param {Object} firecell - Firecell configuration object (not used for this note, applies to all risk groups)
+ * @param {Object} projectModel - Project-level parameters
+ * @param {boolean} [projectModel.fenzAccessHeightUnder15m] - Whether FENZ vehicular access height is <15m
+ * @param {boolean} [projectModel.fenzHoseRunUnder75m] - Whether FENZ hose run distance is <75m
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell (always true - universal application)
+ * @returns {boolean} returns.exempt - Whether the firecell is exempt from Type 18 system
+ * @returns {string} returns.reason - Human-readable explanation of the evaluation
+ */
+function evaluateNote2(firecell, projectModel) {
+  // Note 2 applies to Type 18 systems across all risk groups (universal application)
+
+  // Check exemption conditions - both must be met for exemption
+  const fenzAccessOk = projectModel?.fenzAccessHeightUnder15m === true;
+  const fenzHoseRunOk = projectModel?.fenzHoseRunUnder75m === true;
+
+  // Determine if firecell is exempt from Type 18 system (both conditions must be met)
+  const exempt = fenzAccessOk && fenzHoseRunOk;
+
+  // Generate appropriate reason message
+  const reason = exempt
+    ? 'FENZ access <15m and hose run <75m - Type 18 exempt'
+    : 'Type 18 hydrant system required';
+
+  return {
+    applies: true,
+    exempt,
+    reason,
+  };
+}
+
+module.exports = evaluateNote2;

@@ -1,0 +1,165 @@
+const express = require('express');
+const NotificationController = require('../controllers/notificationController');
+const router = express.Router();
+
+// Middleware to check if user is authenticated
+const requireAuth = (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Unauthorized', code: 'AUTH_REQUIRED' });
+  }
+  next();
+};
+
+// Apply authentication middleware to all routes
+router.use(requireAuth);
+
+/**
+ * @route GET /api/notifications
+ * @description Get all notifications for the current user
+ * @access Private - Any authenticated user
+ * @returns {Array} List of notification objects
+ */
+router.get('/', NotificationController.getUserNotifications);
+
+/**
+ * @route GET /api/notifications/unread-count
+ * @description Get count of unread notifications for the current user
+ * @access Private - Any authenticated user
+ * @returns {Object} Object with unread count
+ */
+router.get('/unread-count', NotificationController.getUnreadCount);
+
+/**
+ * @route PUT /api/notifications/mark-all-read
+ * @description Mark all notifications as read for the current user
+ * @access Private - Any authenticated user
+ * @returns {Object} Success confirmation
+ */
+router.put('/mark-all-read', NotificationController.markAllAsRead);
+
+/**
+ * @route GET /api/notifications/subscriptions
+ * @description Get all entity subscriptions for the current user
+ * @access Private - Any authenticated user
+ * @returns {Array} List of subscription objects
+ */
+router.get('/subscriptions', NotificationController.getUserSubscriptions);
+
+/**
+ * @route POST /api/notifications/subscriptions
+ * @description Subscribe to an entity to receive notifications
+ * @access Private - Any authenticated user
+ * @returns {Object} Created subscription object
+ */
+router.post('/subscriptions', NotificationController.subscribeToEntity);
+
+/**
+ * @route DELETE /api/notifications/subscriptions
+ * @description Unsubscribe from an entity
+ * @access Private - Any authenticated user
+ * @returns {Object} Success confirmation
+ */
+router.delete('/subscriptions', NotificationController.unsubscribeFromEntity);
+
+/**
+ * @route PUT /api/notifications/:notificationId/read
+ * @description Mark a specific notification as read
+ * @access Private - Any authenticated user
+ * @param {string} notificationId - Notification ID
+ * @returns {Object} Updated notification object
+ */
+router.put('/:notificationId/read', NotificationController.markAsRead);
+
+/**
+ * @route DELETE /api/notifications/:notificationId
+ * @description Delete a specific notification
+ * @access Private - Any authenticated user
+ * @param {string} notificationId - Notification ID
+ * @returns {Object} Success confirmation
+ */
+router.delete('/:notificationId', NotificationController.deleteNotification);
+
+/**
+ * @route POST /api/notifications/create
+ * @description Create a new notification (admin/system use)
+ * @access Private - Any authenticated user
+ * @returns {Object} Created notification object
+ */
+router.post('/create', NotificationController.createNotification);
+
+/**
+ * @route POST /api/notifications/notify/entity-created
+ * @description Notify subscribers that an entity was created
+ * @access Private - Any authenticated user
+ * @returns {Object} Success confirmation
+ */
+router.post('/notify/entity-created', NotificationController.notifyEntityCreated);
+
+/**
+ * @route POST /api/notifications/notify/entity-updated
+ * @description Notify subscribers that an entity was updated
+ * @access Private - Any authenticated user
+ * @returns {Object} Success confirmation
+ */
+router.post('/notify/entity-updated', NotificationController.notifyEntityUpdated);
+
+/**
+ * @route POST /api/notifications/notify/status-changed
+ * @description Notify subscribers that an entity status changed
+ * @access Private - Any authenticated user
+ * @returns {Object} Success confirmation
+ */
+router.post('/notify/status-changed', NotificationController.notifyEntityStatusChanged);
+
+/**
+ * @route POST /api/notifications/todos
+ * @description Create a new todo notification
+ * @access Private - Any authenticated user
+ * @returns {Object} Created todo notification object
+ */
+router.post('/todos', NotificationController.createTodo);
+
+/**
+ * @route GET /api/notifications/todos
+ * @description Get all todo notifications for the current user
+ * @access Private - Any authenticated user
+ * @returns {Array} List of todo notification objects
+ */
+router.get('/todos', NotificationController.getTodos);
+
+/**
+ * @route GET /api/notifications/todos/count
+ * @description Get count of incomplete todo notifications
+ * @access Private - Any authenticated user
+ * @returns {Object} Object with todo count
+ */
+router.get('/todos/count', NotificationController.getTodoCount);
+
+/**
+ * @route PUT /api/notifications/todos/:notificationId/complete
+ * @description Mark a todo notification as complete
+ * @access Private - Any authenticated user
+ * @param {string} notificationId - Notification ID
+ * @returns {Object} Updated todo notification object
+ */
+router.put('/todos/:notificationId/complete', NotificationController.markTodoComplete);
+
+/**
+ * @route PUT /api/notifications/todos/:notificationId/incomplete
+ * @description Mark a todo notification as incomplete
+ * @access Private - Any authenticated user
+ * @param {string} notificationId - Notification ID
+ * @returns {Object} Updated todo notification object
+ */
+router.put('/todos/:notificationId/incomplete', NotificationController.markTodoIncomplete);
+
+/**
+ * @route PUT /api/notifications/todos/:notificationId/due-date
+ * @description Update the due date of a todo notification
+ * @access Private - Any authenticated user
+ * @param {string} notificationId - Notification ID
+ * @returns {Object} Updated todo notification object
+ */
+router.put('/todos/:notificationId/due-date', NotificationController.updateTodoDueDate);
+
+module.exports = router;

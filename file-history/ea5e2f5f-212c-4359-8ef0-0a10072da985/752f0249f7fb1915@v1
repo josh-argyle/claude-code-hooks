@@ -1,0 +1,65 @@
+const { processMinimumFireSafetySystems } = require('./minimum-fire-safety-systems');
+const { processFirecellFloorAreaLimits } = require('./firecell-floor-area-limits');
+const { processRemoteReceivingCentre } = require('../remote-receiving-centre/remote-receiving-centre');
+const { getFireSafetySystems, parseSystemCode } = require('../../data/services/fire-safety-systems-service');
+
+function processFireSafetySystems(projectModel) {
+  const firecells = projectModel.getAllFirecells();
+
+  for (let i = 0; i < firecells.length; i++) {
+    const firecell = firecells[i];
+
+    processFirecellFloorAreaLimits(firecell);
+
+    // Prepare parameters based on risk group requirements
+    let params = {
+      escapeHeight: firecell.escapeHeight
+    };
+
+    // SM/SI risk groups need occupantType ('permanent' or 'transient')
+    if (['SM', 'SI'].includes(firecell.riskGroup)) {
+      params.occupantType = firecell.smOccupantType || firecell.siOccupantType || 'permanent'; // Default to permanent
+    }
+
+    // CA/WB/WS risk groups need occupantLoad
+    if (['CA', 'WB', 'WS'].includes(firecell.riskGroup)) {
+      params.occupantLoad = firecell.occupantLoad;
+    }
+
+    // VP risk group needs hasVehicleStacker
+    if (firecell.riskGroup === 'VP') {
+      params.hasVehicleStacker = firecell.hasVehicleStacker || false;
+    }
+
+    const systems = getFireSafetySystems(firecell.riskGroup, params);
+
+    if (systems) {
+      // Store systems on firecell for remote receiving centre processor
+      projectModel.firecells[i].fireSafetySystems = systems;
+
+      // Process each system and store detailed information
+      const processedSystems = [];
+      for (const system of systems) {
+        const parsed = parseSystemCode(system);
+        const processed = processMinimumFireSafetySystems(parsed);
+
+        processedSystems.push({
+          code: system,
+          ...processed
+        });
+      }
+
+      // Store processed system details on firecell
+      projectModel.firecells[i].processedFireSafetySystems = processedSystems;
+    }
+  }
+
+  // Process remote receiving centre requirements after all firecells have their systems
+  processRemoteReceivingCentre(projectModel);
+
+  return projectModel;
+}
+
+module.exports = {
+  processFireSafetySystems
+};

@@ -1,0 +1,242 @@
+const { parseSystemCode } = require('../../data/services/fire-safety-systems-service');
+
+// Import all note evaluators
+const {
+  evaluateNote1a,
+  evaluateNote1b,
+  evaluateNote1c,
+  evaluateNote1d,
+  evaluateNote2,
+  evaluateNote3,
+  evaluateNote4,
+  evaluateNote5,
+  evaluateNote6,
+  evaluateNote7,
+  evaluateNote8,
+  evaluateNote9,
+  evaluateNote10,
+} = require('./note-evaluators');
+
+/**
+ * Apply note evaluations to modify system requirements
+ * @param {Array} systemCodes - Base system codes from lookup tables
+ * @param {Object} firecell - Firecell parameters for note evaluation
+ * @param {Object} projectModel - Project-wide parameters
+ * @param {Array} allFirecells - All building firecells for cross-firecell notes
+ * @returns {Object} Result with modified systems array and compliance info
+ */
+function applyNoteEvaluations(
+  systemCodes,
+  firecell,
+  projectModel,
+  allFirecells = []
+) {
+  const finalSystems = [];
+  const additionalSystems = new Set();
+
+  // Track compliance and substitution info for reporting
+  const complianceInfo = {
+    dualWaterSupply: null,
+    supplementarySmokeDetectors: null,  // Note 4(a)
+    placesOfSafety: null,               // Note 4(b)
+    storageHeightCompliant: null,
+    ventilationRequired: null,
+    ventilationCompliant: null,
+    type4SubstitutionAllowed: null,
+    type3AlternativeAllowed: null,
+  };
+
+  // Process each system code and apply note evaluations for referenced notes ONLY
+  systemCodes.forEach(code => {
+    const parsed = parseSystemCode(code);
+    let keepSystem = true;
+
+    // Apply note evaluations for this system
+    if (parsed.notes && Array.isArray(parsed.notes)) {
+      parsed.notes.forEach(note => {
+        switch (note) {
+          case '1a': {
+            const result1a = evaluateNote1a(firecell);
+            if (result1a.applies && result1a.exempt) {
+              keepSystem = false; // Remove Type 2 system
+            }
+            break;
+          }
+
+          case '1b': {
+            const result1b = evaluateNote1b(firecell, projectModel, allFirecells);
+            if (result1b.applies && result1b.exempt) {
+              keepSystem = false; // Remove Type 2 system
+            }
+            break;
+          }
+
+          case '1c': {
+            const result1c = evaluateNote1c(firecell, projectModel, allFirecells);
+            if (result1c.applies && result1c.exempt) {
+              keepSystem = false; // Remove Type 2 system
+            }
+            break;
+          }
+
+          case '1d': {
+            const result1d = evaluateNote1d(firecell);
+            if (result1d.applies && result1d.exempt) {
+              keepSystem = false; // Remove Type 2 system
+            }
+            break;
+          }
+
+          case '2': {
+            const result2 = evaluateNote2(firecell, projectModel);
+            if (result2.applies && result2.exempt) {
+              keepSystem = false; // Remove Type 18 system
+            }
+            break;
+          }
+
+          case '3': {
+            const result3 = evaluateNote3(firecell, projectModel);
+            if (result3.applies) {
+              complianceInfo.dualWaterSupply = result3.requiresDualSupply;
+            }
+            break;
+          }
+
+          case '4': {
+            const result4 = evaluateNote4(firecell, projectModel, allFirecells);
+            if (result4.applies) {
+              // Store supplementary smoke detector compliance (condition a)
+              if (result4.complianceInfo.supplementarySmokeDetectors) {
+                complianceInfo.supplementarySmokeDetectors =
+                  result4.complianceInfo.supplementarySmokeDetectors;
+              }
+
+              // Store places of safety compliance (condition b)
+              if (result4.complianceInfo.placesOfSafety) {
+                complianceInfo.placesOfSafety =
+                  result4.complianceInfo.placesOfSafety;
+              }
+
+              // Add Type 7 system if required (condition b: escape height > 2.0m)
+              if (result4.requiresType7 && result4.additionalSystems) {
+                result4.additionalSystems.forEach(sys => additionalSystems.add(sys));
+              }
+            }
+            break;
+          }
+
+          case '5': {
+            const result5 = evaluateNote5(firecell, projectModel);
+            if (result5.applies) {
+              complianceInfo.type4SubstitutionAllowed = result5.substitute;
+            }
+            break;
+          }
+
+          case '6': {
+            const result6 = evaluateNote6(firecell);
+            if (result6.applies) {
+              complianceInfo.storageHeightCompliant = result6.compliant;
+            }
+            break;
+          }
+
+          case '7': {
+            const result7 = evaluateNote7(firecell);
+            if (result7.applies && result7.requiresType3) {
+              additionalSystems.add('3'); // Add Type 3 requirement
+            }
+            break;
+          }
+
+          case '8': {
+            const result8 = evaluateNote8(firecell);
+            if (result8.applies) {
+              complianceInfo.type3AlternativeAllowed =
+                result8.allowsType3Alternative;
+            }
+            break;
+          }
+
+          case '9': {
+            const result9 = evaluateNote9(firecell, projectModel, allFirecells);
+            if (result9.applies) {
+              complianceInfo.ventilationRequired = result9.requiresVentilation;
+              complianceInfo.ventilationCompliant = result9.compliant;
+            }
+            break;
+          }
+
+          case '10': {
+            const result10 = evaluateNote10(firecell, projectModel, allFirecells);
+            if (result10.applies && result10.requiresMinType3) {
+              additionalSystems.add('3'); // Add Type 3 requirement
+            }
+            break;
+          }
+        }
+      });
+    }
+
+    // Keep system if not exempted by notes
+    if (keepSystem) {
+      finalSystems.push(code);
+    }
+  });
+
+  // ===== UNCONDITIONAL NOTE EVALUATIONS =====
+  // Note 4 is not referenced in Table 2.2 but must always be evaluated for CA early childhood centres
+  if (firecell.riskGroup === 'CA' && firecell.isEarlyChildhoodCentre === true) {
+    const result4 = evaluateNote4(firecell, projectModel, allFirecells);
+    if (result4.applies) {
+      // Store supplementary smoke detector compliance (condition a)
+      if (result4.complianceInfo.supplementarySmokeDetectors) {
+        complianceInfo.supplementarySmokeDetectors =
+          result4.complianceInfo.supplementarySmokeDetectors;
+      }
+
+      // Store places of safety compliance (condition b)
+      if (result4.complianceInfo.placesOfSafety) {
+        complianceInfo.placesOfSafety =
+          result4.complianceInfo.placesOfSafety;
+      }
+
+      // Add Type 7 system if required (condition b: escape height > 2.0m)
+      if (result4.requiresType7 && result4.additionalSystems) {
+        result4.additionalSystems.forEach(sys => additionalSystems.add(sys));
+      }
+    }
+  }
+
+  // Note 6 should always be evaluated for WB firecells to track storage height compliance
+  if (firecell.riskGroup === 'WB') {
+    const result6 = evaluateNote6(firecell);
+    if (result6.applies && complianceInfo.storageHeightCompliant === null) {
+      complianceInfo.storageHeightCompliant = result6.compliant;
+    }
+  }
+
+  // Add any additional systems required by notes
+  additionalSystems.forEach(systemType => {
+    // Only add if not already present
+    const alreadyHasType = finalSystems.some(code => {
+      const parsed = parseSystemCode(code);
+      return parsed.type === parseInt(systemType);
+    });
+
+    if (!alreadyHasType) {
+      finalSystems.push(systemType);
+    }
+  });
+
+  // Return both systems array and compliance info
+  return {
+    systems: finalSystems,
+    complianceInfo: complianceInfo,
+  };
+}
+
+module.exports = {
+  applyNoteEvaluations,
+};

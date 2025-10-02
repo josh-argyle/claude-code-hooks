@@ -1,0 +1,112 @@
+const {
+  createTableParagraph,
+  createComplianceParagraph,
+  createInfoParagraph,
+} = require('../../utilities/paragraph-builder');
+
+/**
+ * TEXT constants with professional fire safety language
+ * C/AS2 Table 3.1 fire resistance rating requirements
+ */
+const TEXT = {
+  SECTION_TITLE: "Fire Resistance Rating Requirements",
+
+  intro: {
+    content: "Fire resistance ratings (FRR) have been determined in accordance with C/AS2 Table 3.1 for both life safety and property protection."
+  },
+
+  table_title: "Required Fire Resistance Ratings (C/AS2 Table 3.1)",
+
+  compliance_statement: (life, property, riskGroup, sprinklerStatus) =>
+    `The building structure provides fire resistance ratings of ${life} minutes for life safety and ${property} minutes for property protection, meeting C/AS2 requirements for risk group ${riskGroup} ${sprinklerStatus} buildings.`,
+
+  exitway_note: (frr) =>
+    `Exitways shall provide enhanced fire resistance ratings of ${frr} minutes due to escape height exceeding 10 metres. This applies to all load-bearing and fire-separating elements forming part of the exitway in accordance with C/AS2 Table 3.1.`
+};
+
+/**
+ * Generate compliance paragraphs for fire resistance feature
+ * @param {Object} reportProject - Report project model
+ * @param {Object} calculations - Fire resistance calculations
+ * @returns {Array} Array of paragraph objects
+ */
+function generateComplianceParagraphs(reportProject, calculations) {
+  const paragraphs = [];
+
+  // Introduction
+  paragraphs.push(
+    createInfoParagraph(
+      TEXT.SECTION_TITLE,
+      TEXT.intro.content
+    )
+  );
+
+  // 1. Fire resistance ratings table
+  const headers = ['Element', 'Life Safety (min)', 'Property Protection (min)'];
+  const rows = [
+    ['Structural Elements', calculations.life?.toString() || 'N/A', calculations.property?.toString() || 'N/A']
+  ];
+
+  // Add exitway ratings if present
+  if (calculations.exitwayFRR) {
+    rows.push(['Exitways', calculations.exitwayFRR.toString(), calculations.exitwayFRR.toString()]);
+  }
+
+  paragraphs.push(
+    createTableParagraph(TEXT.table_title, headers, rows)
+  );
+
+  // 2. Compliance assessment
+  const riskGroup = reportProject.primaryRiskGroup || reportProject.buildingRiskGroup;
+  const sprinklerStatus = reportProject.isSprinklered ? 'sprinklered' : 'unsprinklered';
+
+  paragraphs.push(
+    createComplianceParagraph(
+      'Fire Resistance Compliance',
+      TEXT.compliance_statement(calculations.life, calculations.property, riskGroup, sprinklerStatus),
+      'compliant'
+    )
+  );
+
+  // 3. Add exitway notes if present
+  if (calculations.exitwayFRR) {
+    paragraphs.push(
+      createInfoParagraph(
+        'Exitway Requirements',
+        TEXT.exitway_note(calculations.exitwayFRR)
+      )
+    );
+  } else if (calculations.exitwayNote) {
+    paragraphs.push(
+      createInfoParagraph(
+        'Exitway Requirements',
+        calculations.exitwayNote
+      )
+    );
+  }
+
+  // 4. Add applicable notes if present
+  if (calculations.applicableNotes && calculations.applicableNotes.length > 0) {
+    const noteText = `Applicable C/AS2 Table 3.1 notes: ${calculations.applicableNotes.join(', ')}`;
+    paragraphs.push(
+      createInfoParagraph(
+        'Fire Resistance Notes',
+        noteText
+      )
+    );
+  }
+
+  // 5. Add ventilation substitution note if applicable
+  if (calculations.ventilationNote) {
+    paragraphs.push(
+      createInfoParagraph(
+        'Ventilation Requirements',
+        calculations.ventilationNote
+      )
+    );
+  }
+
+  return paragraphs;
+}
+
+module.exports = { generateComplianceParagraphs };

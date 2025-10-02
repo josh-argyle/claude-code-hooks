@@ -1,0 +1,653 @@
+# Report Builder Implementation Plan v2
+
+## Executive Summary
+
+This plan integrates insights from the legacy document-blocks system (`/docs/reference/document-blocks/`) to implement human-readable fire safety compliance reports. The key insight: **we need professional fire safety language and regulatory text, not just raw data formatting**.
+
+## Problem Statement
+
+Currently, the results page displays raw JSON objects. We need professional fire safety compliance reports with:
+- Proper regulatory language (C/AS2 references)
+- Professional fire engineering terminology
+- Human-readable explanations of requirements
+- Clear compliance statements
+
+## Reference Architecture Insights
+
+### Document Blocks System (Legacy Reference)
+
+The `/docs/reference/document-blocks/` folder contains OLD OUTDATED code, but it has **professionally written TEXT content** that we should adapt (NOT copy verbatim) for our new system.
+
+**Two categories of content**:
+1. **Generated Blocks**: Dynamic content with calculations (fire-safety-systems, firecells, fire-resistance-ratings, hazardous-substances)
+2. **Standard Blocks**: Static regulatory text (introduction, signage, legal requirements)
+
+**Key Pattern**: Each block has TEXT constants with professional language:
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Fire Safety System Requirements",
+
+    _1: {
+        title: "Type 1",
+        getContent: () => "Type 1 domestic smoke alarm.",
+        reason_permanent: 'Domestic alarms are required for all permanent accommodation with an escape height less than 10 meters.'
+    },
+
+    receiving_centre: {
+        connection: 'Due to the accommodation not falling within the exemption requirements for a remote receiving centre, a connection to such a centre is required.',
+        no_connection: (max) => `Due to the accommodation being permanent and having an escape height of less than 10m (the height is ${max}m), a connection to a remote receiving centre is not required.`
+    }
+};
+```
+
+## Current State
+
+### What Exists
+- **Paragraph Builder Utility** (`api/utilities/paragraph-builder.js`): ✓ Complete
+- **Fire Resistance Generators**: ✓ Exist but NOT called
+- **Pipeline Structure** (`api/pipeline.js`): ✓ Sequential processor execution
+- **Results View** (`views/results.pug`): Currently displays raw data
+- **Reference Text Content**: ✓ Professional language in `/docs/reference/document-blocks/`
+
+### What's Missing
+1. Report builder to orchestrate paragraph generation
+2. Compliance and requirements generators for 4 processors (with TEXT content)
+3. Professional fire safety language in generators
+4. View rendering logic for paragraphs
+5. Styling for paragraph types
+
+## Architecture
+
+[Same as v1 - no changes to architecture diagram]
+
+## Professional Language Requirements
+
+### Regulatory References
+All text must reference C/AS2 (Compliance Acceptable Solution 2):
+- "C/AS2 requires that..."
+- "in accordance with C/AS2 Table 2.2"
+- "as specified in C/AS2 Section 1.2.5"
+
+### Fire Safety Systems Descriptions
+Must use official system type descriptions:
+- **Type 1**: "Type 1 domestic smoke alarm"
+- **Type 2**: "Type 2 – Manual fire alarm system"
+- **Type 5**: "Type 5 – Automatic fire alarm system with modified smoke detection and manual call points"
+- **Type 7**: "Type 7 – Automatic fire sprinkler system"
+- **Type 9**: "Type 9 – Smoke control system"
+- **Type 15**: "Type 15 – Emergency lighting system"
+- **Type 18**: "Type 18 – Fire Hydrant System"
+
+### Compliance Language
+Use professional fire engineering language:
+- "The building structure provides fire resistance ratings of X minutes for life safety and Y minutes for property protection, meeting C/AS2 requirements..."
+- "Due to the accommodation being permanent and having an escape height of less than 10m, a connection to a remote receiving centre is not required."
+- "The total occupant load for the planned building is X people."
+
+## Implementation Details - WITH TEXT CONTENT
+
+### 1. Report Builder (NEW FILE)
+
+**File**: `api/report-builder.js`
+
+[Same structure as v1, no changes]
+
+### 2. Paragraph Generators WITH TEXT CONTENT
+
+Each generator needs:
+1. TEXT constants with professional language
+2. Functions to generate paragraphs using paragraph-builder
+3. Conditional logic for different scenarios
+
+#### 2.1 Hazardous Substances Generators
+
+**Files**:
+- `api/processors/hazardous-substances/compliance-generator.js`
+- `api/processors/hazardous-substances/requirements-generator.js`
+
+**TEXT Content** (adapted from reference):
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Hazardous Substances",
+
+    regulatory_notice: {
+        content: "C/AS2 does not include regulations for when hazardous substances will be stored, used or processed in the building. Compliance with NZBC Clause F3, the Hazardous Substances and New Organisms Act 1996, and the Health and Safety at Work (Hazardous Substances) Regulations 2017 shall also be ensured where applicable in addition to the requirements of this Acceptable Solution."
+    },
+
+    stores_yes: {
+        content: "The client acknowledges this and has confirmed that the proposed building will be used to store, use or process hazardous substances. They are aware of the responsibilities they have to ensure the proposed building complies with relevant regulations beyond this document."
+    },
+
+    stores_no: {
+        content: "The client acknowledges this and has confirmed that the proposed building will not be used to store, use or process hazardous substances."
+    }
+};
+```
+
+**Compliance Generator Implementation**:
+```javascript
+function generateComplianceParagraphs(projectModel) {
+    const paragraphs = [];
+
+    // Always add regulatory notice
+    paragraphs.push(
+        createInfoParagraph(
+            TEXT.SECTION_TITLE,
+            TEXT.regulatory_notice.content
+        )
+    );
+
+    // Add compliance statement based on storage
+    if (projectModel.storesHazardousGoods === true) {
+        paragraphs.push(
+            createWarningParagraph(
+                'Hazardous Substances Storage',
+                TEXT.stores_yes.content
+            )
+        );
+    } else if (projectModel.storesHazardousGoods === false) {
+        paragraphs.push(
+            createComplianceParagraph(
+                'Hazardous Substances Compliance',
+                TEXT.stores_no.content,
+                'compliant'
+            )
+        );
+    }
+
+    return paragraphs;
+}
+```
+
+#### 2.2 Fire Safety Systems Generators
+
+**Files**:
+- `api/processors/fire-safety-systems/compliance-generator.js`
+- `api/processors/fire-safety-systems/requirements-generator.js`
+
+**TEXT Content** (adapted from reference):
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Fire Safety System Requirements",
+
+    systems: {
+        type_1: {
+            title: "Type 1 – Domestic Smoke Alarm",
+            description: "Type 1 domestic smoke alarm",
+            reason_permanent: "Domestic alarms are required for all permanent accommodation with an escape height less than 10 meters."
+        },
+        type_2: {
+            title: "Type 2 – Manual Fire Alarm System",
+            description: "Type 2 – Manual fire alarm system",
+            reason: "Where note 1a of table 2.2 does not apply, a type 2 system is required for permanent accommodation."
+        },
+        type_5: {
+            title: "Type 5 – Automatic Fire Alarm System",
+            description: "Type 5 – Automatic fire alarm system with modified smoke detection and manual call points",
+            reason_transient: "Where note 1a of table 2.2 does not apply, a type 5 system is required for transient accommodation.",
+            reason_height: "Buildings with an escape height between 10m and 25m require a type 5 system."
+        },
+        type_7: {
+            title: "Type 7 – Automatic Fire Sprinkler System",
+            description: "Type 7 – Automatic fire sprinkler system",
+            reason: "Buildings with an escape height exceeding 25m require a type 7 sprinkler system."
+        },
+        type_9: {
+            title: "Type 9 – Smoke Control System",
+            description: "Type 9 – Smoke control system",
+            reason: "Buildings with an escape height exceeding 25m require a type 9 smoke control system."
+        },
+        type_15: {
+            title: "Type 15 – Emergency Lighting System",
+            description: "Type 15 – Emergency lighting system",
+            reason_10_25: "Buildings with an escape height between 10m and 25m require a type 15 emergency lighting system.",
+            reason_over_25: "Buildings with an escape height exceeding 25m require a type 15 emergency lighting system."
+        },
+        type_18: {
+            title: "Type 18 – Fire Hydrant System",
+            description: "Type 18 – Fire Hydrant System",
+            reason: "C/AS2 requires that in buildings where the hose run distance or distance to any floor from Fire and Emergency vehicular access a fire hydrant system is required."
+        }
+    },
+
+    remote_receiving_centre: {
+        required: "Due to the accommodation not falling within the exemption requirements for a remote receiving centre, a connection to such a centre is required.",
+        not_required: (escapeHeight) => `Due to the accommodation being permanent and having an escape height of less than 10m (the height is ${escapeHeight}m), a connection to a remote receiving centre is not required.`
+    },
+
+    intro: {
+        content: "The following fire safety systems are required in accordance with C/AS2 Table 2.2:"
+    }
+};
+```
+
+**Compliance Generator Implementation**:
+```javascript
+function generateComplianceParagraphs(projectModel) {
+    const paragraphs = [];
+
+    // Introduction
+    paragraphs.push(
+        createInfoParagraph(
+            TEXT.SECTION_TITLE,
+            TEXT.intro.content
+        )
+    );
+
+    // Table of required systems per firecell
+    if (projectModel.firecells && projectModel.firecells.length > 0) {
+        const headers = ['Firecell', 'Risk Group', 'Required Systems', 'System Descriptions'];
+        const rows = [];
+
+        projectModel.firecells.forEach((firecell, index) => {
+            const systems = firecell.fireSafetySystems || [];
+            const descriptions = firecell.processedFireSafetySystems
+                ? firecell.processedFireSafetySystems.map(s => s.description || s.code).join(', ')
+                : systems.join(', ');
+
+            rows.push([
+                `Firecell ${index + 1}`,
+                firecell.riskGroup,
+                systems.join(', '),
+                descriptions
+            ]);
+        });
+
+        paragraphs.push(
+            createTableParagraph(
+                'Required Fire Safety Systems (C/AS2 Table 2.2)',
+                headers,
+                rows
+            )
+        );
+    }
+
+    // Remote receiving centre
+    if (projectModel.remoteReceivingCentreCompliance) {
+        const compliance = projectModel.remoteReceivingCentreCompliance;
+        const statusText = compliance.required
+            ? TEXT.remote_receiving_centre.required
+            : TEXT.remote_receiving_centre.not_required(projectModel.escapeHeight || 0);
+
+        paragraphs.push(
+            createComplianceParagraph(
+                'Remote Receiving Centre',
+                statusText,
+                compliance.status
+            )
+        );
+    }
+
+    return paragraphs;
+}
+```
+
+#### 2.3 Occupant Load Generators
+
+**Files**:
+- `api/processors/occupant-load/compliance-generator.js`
+- `api/processors/occupant-load/requirements-generator.js`
+
+**TEXT Content**:
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Occupant Load Assessment",
+
+    intro: {
+        content: "Occupant loads have been calculated in accordance with C/AS2 requirements using the occupant density factors specified for each space type."
+    },
+
+    summary: (totalLoad) => `The total occupant load for the planned building is ${totalLoad} people.`,
+
+    table_title: "Calculated Occupant Loads by Firecell"
+};
+```
+
+**Compliance Generator Implementation**:
+```javascript
+function generateComplianceParagraphs(projectModel) {
+    const paragraphs = [];
+
+    paragraphs.push(
+        createInfoParagraph(
+            TEXT.SECTION_TITLE,
+            TEXT.intro.content
+        )
+    );
+
+    // Table of occupant loads per firecell
+    if (projectModel.firecells && projectModel.firecells.length > 0) {
+        const headers = ['Firecell', 'Occupant Type', 'Floor Area (m²)', 'Occupant Load'];
+        const rows = [];
+        let totalLoad = 0;
+
+        projectModel.firecells.forEach((firecell, index) => {
+            const load = firecell.occupantLoad || 0;
+            totalLoad += load;
+
+            rows.push([
+                `Firecell ${index + 1}`,
+                firecell.occupantType || 'Not specified',
+                (firecell.floorArea || 0).toString(),
+                load.toString()
+            ]);
+        });
+
+        paragraphs.push(
+            createTableParagraph(
+                TEXT.table_title,
+                headers,
+                rows
+            )
+        );
+
+        // Summary
+        paragraphs.push(
+            createComplianceParagraph(
+                'Total Occupant Load',
+                TEXT.summary(totalLoad),
+                'info'
+            )
+        );
+    }
+
+    return paragraphs;
+}
+```
+
+#### 2.4 Firecells Generators
+
+**Files**:
+- `api/processors/firecells/compliance-generator.js`
+- `api/processors/firecells/requirements-generator.js`
+
+**TEXT Content**:
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Firecell Configuration and Compliance",
+
+    intro: {
+        content: "The building is divided into firecells as specified in C/AS2. Each firecell has been assessed for floor area limitations and compliance with relevant requirements."
+    },
+
+    table_title: "Firecell Summary",
+
+    floor_area_compliance: {
+        compliant: (limit) => `Firecell floor area is within the ${limit}m² limit specified in C/AS2 Table 2.1.`,
+        non_compliant: (actual, limit) => `Firecell floor area of ${actual}m² exceeds the ${limit}m² limit specified in C/AS2 Table 2.1.`
+    }
+};
+```
+
+**Compliance Generator Implementation**:
+```javascript
+function generateComplianceParagraphs(projectModel) {
+    const paragraphs = [];
+
+    paragraphs.push(
+        createInfoParagraph(
+            TEXT.SECTION_TITLE,
+            TEXT.intro.content
+        )
+    );
+
+    // Table of firecells
+    if (projectModel.firecells && projectModel.firecells.length > 0) {
+        const headers = ['Firecell', 'Risk Group', 'Sprinklered', 'Floor Area (m²)', 'Floor Area Compliance'];
+        const rows = [];
+
+        projectModel.firecells.forEach((firecell, index) => {
+            const floorAreaLimit = firecell.compliance?.firecellFloorArea?.limit || 'N/A';
+            const compliant = firecell.compliance?.firecellFloorArea?.compliant;
+            const complianceStatus = compliant ? '✓ Compliant' : '✗ Non-compliant';
+
+            rows.push([
+                `Firecell ${index + 1}`,
+                firecell.riskGroup,
+                firecell.isSprinklered ? 'Yes' : 'No',
+                (firecell.floorArea || 0).toString(),
+                complianceStatus
+            ]);
+
+            // Add individual compliance paragraph for each firecell with issues
+            if (compliant === false) {
+                paragraphs.push(
+                    createWarningParagraph(
+                        `Firecell ${index + 1} Floor Area`,
+                        TEXT.floor_area_compliance.non_compliant(firecell.floorArea, floorAreaLimit)
+                    )
+                );
+            }
+        });
+
+        paragraphs.push(
+            createTableParagraph(
+                TEXT.table_title,
+                headers,
+                rows
+            )
+        );
+    }
+
+    return paragraphs;
+}
+```
+
+#### 2.5 Fire Resistance Generators (ALREADY EXIST - ENHANCE TEXT)
+
+**Files**: Already exist, but should enhance TEXT constants with professional language from reference.
+
+**Enhanced TEXT Content**:
+```javascript
+const TEXT = {
+    SECTION_TITLE: "Fire Resistance Rating Requirements",
+
+    intro: {
+        content: "Fire resistance ratings (FRR) have been determined in accordance with C/AS2 Table 3.1 for both life safety and property protection."
+    },
+
+    table_title: "Required Fire Resistance Ratings",
+
+    compliance_statement: (life, property, riskGroup, sprinklerStatus) =>
+        `The building structure provides fire resistance ratings of ${life} minutes for life safety and ${property} minutes for property protection, meeting C/AS2 requirements for risk group ${riskGroup} ${sprinklerStatus} buildings.`,
+
+    exitway_note: (frr) =>
+        `Exitways shall provide enhanced fire resistance ratings of ${frr} minutes due to escape height exceeding 10 metres. This applies to all load-bearing and fire-separating elements forming part of the exitway.`
+};
+```
+
+### 3. Pipeline Integration
+
+[Same as v1]
+
+### 4. Server Integration
+
+[Same as v1]
+
+### 5. View Updates
+
+[Same as v1]
+
+### 6. Styling
+
+[Same as v1 - see section 7 from original plan]
+
+## Critical Design Decisions
+
+### 1. Professional Language is Essential
+- Use TEXT constants for all human-readable content
+- Adapt (don't copy) professional language from reference files
+- Include C/AS2 regulatory references
+- Use official fire safety system descriptions
+
+### 2. Text Content Organization
+Each generator should have:
+```javascript
+const TEXT = {
+    SECTION_TITLE: "...",
+    intro: { content: "..." },
+    tables: { title: "...", headers: [...] },
+    compliance_statements: { ... },
+    warnings: { ... }
+};
+```
+
+### 3. Regulatory References
+All text must reference C/AS2:
+- System requirements: "in accordance with C/AS2 Table 2.2"
+- FRR requirements: "as specified in C/AS2 Table 3.1"
+- Floor area limits: "specified in C/AS2 Table 2.1"
+
+### 4. Document Type Support
+Default to 'fire-report' (compliance-focused) but structure allows for 'requirements-document' later.
+
+### 5. Separation of Concerns
+- **Processors**: Do calculations only
+- **Generators**: Format data into professional paragraphs with TEXT content
+- **Report Builder**: Orchestrate paragraph generation
+- **View**: Render paragraphs with appropriate styling
+
+## Implementation Order
+
+### Phase 1: Foundation + TEXT Content Preparation
+1. Create TEXT constants file or section for each generator (use reference files as guide)
+2. Create `api/report-builder.js` with basic structure
+3. Update `api/pipeline.js` to call report builder
+4. Update `server.js` to pass document type
+
+### Phase 2: View Rendering
+5. Update `views/results.pug` to render paragraphs
+6. Add paragraph type rendering (table, list, compliance, etc.)
+7. Test with fire-resistance paragraphs (already exist)
+8. Add styling for paragraph types
+
+### Phase 3: Generator Implementation (WITH TEXT)
+9. Hazardous substances generators (with TEXT content)
+10. Fire safety systems generators (with TEXT content - most complex)
+11. Occupant load generators (with TEXT content)
+12. Firecells generators (with TEXT content)
+13. Enhance fire resistance generators TEXT content
+
+### Phase 4: Testing & Refinement
+14. Test full report generation with real form data
+15. Verify professional language throughout
+16. Check C/AS2 references are correct
+17. Verify table formatting
+18. Test compliance status indicators
+
+## Files to Create
+
+- `api/report-builder.js`
+- `api/processors/hazardous-substances/compliance-generator.js` (with TEXT)
+- `api/processors/hazardous-substances/requirements-generator.js` (with TEXT)
+- `api/processors/fire-safety-systems/compliance-generator.js` (with TEXT)
+- `api/processors/fire-safety-systems/requirements-generator.js` (with TEXT)
+- `api/processors/occupant-load/compliance-generator.js` (with TEXT)
+- `api/processors/occupant-load/requirements-generator.js` (with TEXT)
+- `api/processors/firecells/compliance-generator.js` (with TEXT)
+- `api/processors/firecells/requirements-generator.js` (with TEXT)
+
+## Files to Modify
+
+- `api/pipeline.js` - Add buildReport call
+- `server.js` - Pass document type
+- `views/results.pug` - Add paragraph rendering
+- `api/processors/fire-resistance/compliance-generator.js` - Enhance TEXT content
+- `api/processors/fire-resistance/requirements-generator.js` - Enhance TEXT content
+
+## Files Already Complete
+
+- `api/utilities/paragraph-builder.js` ✓
+- `api/processors/fire-resistance/compliance-generator.js` ✓ (needs TEXT enhancement)
+- `api/processors/fire-resistance/requirements-generator.js` ✓ (needs TEXT enhancement)
+
+---
+
+## TODO List
+
+### Phase 1: Foundation + TEXT Preparation
+- [ ] Review all TEXT content in `/docs/reference/document-blocks/generated/` for each processor
+- [ ] Create TEXT constants structure for hazardous substances generator
+- [ ] Create TEXT constants structure for fire safety systems generator
+- [ ] Create TEXT constants structure for occupant load generator
+- [ ] Create TEXT constants structure for firecells generator
+- [ ] Create `api/report-builder.js` with structure
+- [ ] Update `api/pipeline.js` to accept documentType and call buildReport()
+- [ ] Update `server.js` POST /process to pass 'fire-report' to pipeline
+
+### Phase 2: View Rendering
+- [ ] Update `views/results.pug` to render reportParagraphs array
+- [ ] Add case statement for different paragraph types (table, list, compliance, etc.)
+- [ ] Move existing raw data display into collapsible debug section
+- [ ] Test rendering with fire-resistance paragraphs
+- [ ] Add styling for all paragraph types (info, warning, danger, table, compliance, etc.)
+
+### Phase 3: Hazardous Substances Generator
+- [ ] Create `compliance-generator.js` with TEXT constants
+- [ ] Implement regulatory notice paragraph
+- [ ] Implement stores_yes/stores_no compliance paragraphs
+- [ ] Create `requirements-generator.js` with TEXT constants
+- [ ] Import and call in report-builder.js
+- [ ] Test with projectModel that stores hazardous goods
+- [ ] Test with projectModel that doesn't store hazardous goods
+
+### Phase 4: Fire Safety Systems Generator
+- [ ] Create `compliance-generator.js` with comprehensive TEXT constants for all system types
+- [ ] Implement system requirements table (per firecell)
+- [ ] Implement system descriptions with professional language
+- [ ] Implement remote receiving centre paragraphs
+- [ ] Handle note evaluations (1a, 1b, 1c, 1d) if present in processedFireSafetySystems
+- [ ] Create `requirements-generator.js` with TEXT constants
+- [ ] Import and call in report-builder.js
+- [ ] Test with various firecell configurations
+- [ ] Verify all system type descriptions are correct
+
+### Phase 5: Occupant Load Generator
+- [ ] Create `compliance-generator.js` with TEXT constants
+- [ ] Implement intro paragraph
+- [ ] Implement occupant load table (per firecell)
+- [ ] Implement total occupant load summary
+- [ ] Create `requirements-generator.js` with TEXT constants
+- [ ] Import and call in report-builder.js
+- [ ] Test with multiple firecells
+
+### Phase 6: Firecells Generator
+- [ ] Create `compliance-generator.js` with TEXT constants
+- [ ] Implement intro paragraph
+- [ ] Implement firecell summary table
+- [ ] Implement floor area compliance paragraphs
+- [ ] Handle special conditions (vehicle stacker, cinema/theatre)
+- [ ] Create `requirements-generator.js` with TEXT constants
+- [ ] Import and call in report-builder.js
+- [ ] Test with various risk groups and configurations
+
+### Phase 7: Fire Resistance TEXT Enhancement
+- [ ] Review existing fire-resistance generators
+- [ ] Enhance TEXT constants with professional language from reference
+- [ ] Verify C/AS2 Table 3.1 references are correct
+- [ ] Test enhanced text in rendered report
+
+### Phase 8: Report Builder Integration
+- [ ] Import all generators in report-builder.js
+- [ ] Implement conditional calls based on data availability
+- [ ] Verify paragraph order is logical
+- [ ] Test with minimal projectModel (few fields)
+- [ ] Test with complete projectModel (all fields)
+
+### Phase 9: Final Integration & Testing
+- [ ] Test full pipeline with real form submission
+- [ ] Verify all paragraph types render correctly
+- [ ] Check professional language throughout report
+- [ ] Verify all C/AS2 references are present and correct
+- [ ] Test table formatting and styling
+- [ ] Test compliance status indicators (colors, icons)
+- [ ] Verify debug section is collapsible
+- [ ] Test with edge cases (no firecells, missing data)
+- [ ] Test with different risk groups (SM, SI, CA, WB, WS, VP)
+- [ ] Verify remote receiving centre logic is correct
+
+### Phase 10: Documentation & Polish
+- [ ] Document TEXT content patterns for future generators
+- [ ] Add comments explaining C/AS2 references
+- [ ] Create examples of professional language usage
+- [ ] Update this plan with any learnings from implementation

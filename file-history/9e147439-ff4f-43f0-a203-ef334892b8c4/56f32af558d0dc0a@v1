@@ -1,0 +1,302 @@
+const ProjectModel = require('../../api/models/project-model');
+const { processPipeline } = require('../../api/pipeline');
+
+describe('Table 2.1 Note 2: 15m Boundary Distance Integration', () => {
+  describe('WB unsprinklered buildings over 5000m²', () => {
+    test('should be non-compliant when < 15m from boundary', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = false;
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 8000,
+        floor: 'G',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 300
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(false);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+    });
+
+    test('should be compliant when ≥ 15m from boundary', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = true; // Note 2 applies
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 8000,
+        floor: 'G',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 300
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('unlimited_with_boundary_distance');
+    });
+
+    test('should default to non-compliant when boundary distance not provided', () => {
+      const projectModel = new ProjectModel();
+      // distanceFromBoundary15mOrMore is undefined (not set)
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 8000,
+        floor: 'G',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 300
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // Should default to false (< 15m), so non-compliant
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(false);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+    });
+  });
+
+  describe('VP unsprinklered buildings over 5000m²', () => {
+    test('should apply Note 2 same as WB when ≥15m from boundary', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = true;
+
+      projectModel.addFirecell({
+        riskGroup: 'VP',
+        occupantType: 'Parking buildings, garages',
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 12000,
+        floor: 'G',
+        hasVehicleStacker: false,
+        numberOfEscapeRoutes: 2,
+        maxEscapeRouteOccupants: 20
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('unlimited_with_boundary_distance');
+    });
+
+    test('should be non-compliant when < 15m from boundary', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = false;
+
+      projectModel.addFirecell({
+        riskGroup: 'VP',
+        occupantType: 'Parking buildings, garages',
+        escapeHeight: 5,
+        isSprinklered: false,
+        floorArea: 12000,
+        floor: 'G',
+        hasVehicleStacker: false,
+        numberOfEscapeRoutes: 2,
+        maxEscapeRouteOccupants: 20
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(false);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+    });
+  });
+
+  describe('Buildings that do NOT need boundary distance', () => {
+    test('should not affect SM sprinklered (Note 2 not applicable)', () => {
+      const projectModel = new ProjectModel();
+      // distanceFromBoundary15mOrMore not set (undefined)
+
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        sleepingOccupantType: 'careOrDetention',
+        occupantLoad: 50,
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 10000,
+        floor: 'G',
+        numberOfEscapeRoutes: 2,
+        maxEscapeRouteBeds: 50
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // SM sprinklered is always compliant (Unlimited¹)
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('sprinklered');
+    });
+
+    test('should not affect WB sprinklered (Note 2 not applicable)', () => {
+      const projectModel = new ProjectModel();
+      // distanceFromBoundary15mOrMore not set
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: true,
+        floorArea: 10000,
+        floor: 'G',
+        numberOfEscapeRoutes: 4,
+        maxEscapeRouteOccupants: 300
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // WB sprinklered is always compliant
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('sprinklered');
+    });
+
+    test('should not affect WB unsprinklered under 5000m²', () => {
+      const projectModel = new ProjectModel();
+      // distanceFromBoundary15mOrMore not set
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 4500, // Under 5000m² threshold
+        floor: 'G',
+        numberOfEscapeRoutes: 2,
+        maxEscapeRouteOccupants: 100
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // Within base limit, so compliant
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('within_limit');
+    });
+  });
+
+  describe('Multi-firecell scenarios', () => {
+    test('should handle mixed firecells correctly', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = true;
+
+      // First firecell: SM sprinklered (doesn't need boundary data)
+      projectModel.addFirecell({
+        riskGroup: 'SM',
+        sleepingOccupantType: 'careOrDetention',
+        occupantLoad: 20,
+        escapeHeight: 8,
+        isSprinklered: true,
+        floorArea: 1000,
+        floor: 'G',
+        numberOfEscapeRoutes: 1,
+        maxEscapeRouteBeds: 20
+      });
+
+      // Second firecell: WB unsprinklered >5000m² (DOES need boundary data)
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 6000,
+        floor: '1',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 250
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // First firecell should be compliant (sprinklered)
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+
+      // Second firecell should be compliant due to boundary distance
+      expect(processed.firecells[1].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[1].firecellCompliance.reason).toBe('unlimited_with_boundary_distance');
+    });
+  });
+
+  describe('Boundary distance edge cases', () => {
+    test('should respect exactly 15.0m as compliant', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = true; // User indicates ≥15m
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 7000,
+        floor: 'G',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 300
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('unlimited_with_boundary_distance');
+    });
+
+    test('should correctly handle exactly 5000m² with boundary ≥15m', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = true;
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 5000, // Exactly at base limit
+        floor: 'G',
+        numberOfEscapeRoutes: 2,
+        maxEscapeRouteOccupants: 100
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // At exactly 5000m², within limit so compliant (Note 2 not needed)
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(true);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('within_limit');
+    });
+
+    test('should require Note 2 for 5001m²', () => {
+      const projectModel = new ProjectModel();
+      projectModel.distanceFromBoundary15mOrMore = false;
+
+      projectModel.addFirecell({
+        riskGroup: 'WB',
+        occupantType: 'Office spaces',
+        occupantLoad: 100,
+        escapeHeight: 10,
+        isSprinklered: false,
+        floorArea: 5001, // Just over base limit
+        floor: 'G',
+        numberOfEscapeRoutes: 3,
+        maxEscapeRouteOccupants: 200
+      });
+
+      const processed = processPipeline(projectModel, 'fire-report');
+
+      // Over limit and insufficient boundary distance
+      expect(processed.firecells[0].firecellCompliance.isCompliant).toBe(false);
+      expect(processed.firecells[0].firecellCompliance.reason).toBe('exceeds_limit_insufficient_boundary_distance');
+    });
+  });
+});

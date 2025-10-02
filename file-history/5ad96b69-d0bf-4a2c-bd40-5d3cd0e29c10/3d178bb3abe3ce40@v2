@@ -1,0 +1,66 @@
+/**
+ * Note 8 Evaluator - Storage Height Type 3 System Alternative Permission
+ *
+ * From CAS2 Table 2.2 Note 8:
+ * "A Type 3 system is permitted to be provided in firecells used for storage
+ * where the storage height is over 3.0 m"
+ *
+ * This note applies specifically to WB risk group areas with 100-1000 occupants
+ * (based on table reference "4^5-8") and permits Type 3 as an alternative to Type 4
+ * when storage height exceeds 3.0m.
+ *
+ * Key difference from Note 7:
+ * - Note 7: REQUIRES Type 3 for any WB/WS when storage >3.0m
+ * - Note 8: PERMITS Type 3 as substitute for Type 4 for WB 100-1000 when storage >3.0m
+ *
+ * @param {Object} firecell - Firecell configuration object
+ * @param {string} firecell.riskGroup - Building risk group (must be 'WB' for this note to apply)
+ * @param {number} firecell.occupantLoad - Number of occupants (must be 100-1000 for this note to apply)
+ * @param {number} [firecell.maxStorageHeight] - Maximum storage height in meters
+ * @returns {Object} Evaluation result
+ * @returns {boolean} returns.applies - Whether this note applies to the firecell
+ * @returns {boolean} [returns.allowsType3Alternative] - Whether Type 3 is permitted as alternative (only if applies is true)
+ * @returns {string} [returns.reason] - Human-readable explanation of the evaluation (only if applies is true)
+ */
+function evaluateNote8(firecell) {
+  // Handle null/undefined firecell parameter
+  if (!firecell) {
+    return { applies: false };
+  }
+
+  // Note 8 only applies to WB (Warehouse/Storage) risk group
+  // Not WS - Note 8 reference only appears on WB rows in Table 2.2
+  if (firecell.riskGroup !== 'WB') {
+    return { applies: false };
+  }
+
+  // Note 8 only applies to 100-1000 occupant range (where it's referenced in table)
+  // Must be a valid number within the range
+  const occupantLoad = firecell.occupantLoad;
+  if (
+    typeof occupantLoad !== 'number' ||
+    occupantLoad < 100 ||
+    occupantLoad > 1000
+  ) {
+    return { applies: false };
+  }
+
+  // Check storage height condition - must be greater than 3.0m to permit Type 3 alternative
+  const allowsType3Alternative =
+    typeof firecell.maxStorageHeight === 'number' &&
+    isFinite(firecell.maxStorageHeight) &&
+    firecell.maxStorageHeight > 3.0;
+
+  // Generate appropriate reason message
+  const reason = allowsType3Alternative
+    ? 'Storage >3.0m - Type 3 permitted as alternative to Type 4'
+    : 'Standard Type 4 requirement applies';
+
+  return {
+    applies: true,
+    allowsType3Alternative,
+    reason,
+  };
+}
+
+module.exports = evaluateNote8;
