@@ -19,7 +19,7 @@ if [ "$IS_BASH_TOOL" = true ] && echo "$INPUT" | grep -qiE "(npm|yarn|pnpm).+(de
     cat << 'EOF'
 {
   "decision": "block",
-  "reason": "🚫 Server start command blocked! The server is already running with nodemon on port 3000. Do not start, restart, or kill the server.",
+  "reason": "🚫 Server start command blocked! The server is already running with nodemon. Do not start, restart, or kill the server.",
   "systemMessage": "Server start command blocked for protection"
 }
 EOF
