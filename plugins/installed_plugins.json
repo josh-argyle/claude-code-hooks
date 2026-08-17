@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "plugins": {
+    "frontend-design@claude-code-plugins": [
+      {
+        "scope": "user",
+        "installPath": "/home/io/.claude/plugins/cache/claude-code-plugins/frontend-design/1.1.0",
+        "version": "1.1.0",
+        "installedAt": "2025-12-03T19:57:32.435Z",
+        "lastUpdated": "2026-06-18T02:29:44.659Z",
+        "gitCommitSha": "423563cfe38c90fdf3b428cff0ee7f51cfec3ca7"
+      }
+    ],
+    "security-guidance@claude-code-plugins": [
+      {
+        "scope": "user",
+        "installPath": "/home/io/.claude/plugins/cache/claude-code-plugins/security-guidance/2.0.0",
+        "version": "2.0.0",
+        "installedAt": "2025-12-03T19:57:32.435Z",
+        "lastUpdated": "2026-05-26T20:39:51.649Z",
+        "gitCommitSha": "d08288e09fe95340a68d58ae3fd783cb56494781"
+      }
+    ],
+    "perception-first-design@perception-first-design": [
+      {
+        "scope": "user",
+        "installPath": "/home/io/.claude/plugins/cache/perception-first-design/perception-first-design/0.7.0",
+        "version": "0.7.0",
+        "installedAt": "2026-05-12T22:10:44.831Z",
+        "lastUpdated": "2026-05-12T22:10:44.831Z",
+        "gitCommitSha": "6a01567d5fce648360549b1162781449daf6d5e5"
+      }
+    ],
+    "primevue@primeui": [
+      {
+        "scope": "user",
+        "installPath": "/home/io/.claude/plugins/cache/primeui/primevue/1.0.0",
+        "version": "1.0.0",
+        "installedAt": "2026-07-16T22:44:45.270Z",
+        "lastUpdated": "2026-07-16T22:44:45.270Z",
+        "gitCommitSha": "06435556fab9eb948b46eb19f3718d754796270c"
+      }
+    ]
+  }
+}

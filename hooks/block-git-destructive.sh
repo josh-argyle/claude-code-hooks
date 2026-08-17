@@ -18,7 +18,8 @@ if echo "$INPUT" | grep -q '"tool_name":"Bash"'; then
     if echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+reset[[:space:]]+--hard' || \
        echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+clean[[:space:]]+-[^"]*[fd]' || \
        echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+checkout[[:space:]]+--[[:space:]]+\.' || \
-       echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+checkout[[:space:]]+--[[:space:]]+[^"]*'; then
+       echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+checkout[[:space:]]+--[[:space:]]+[^"]*' || \
+       echo "$INPUT" | grep -qE '"command":"[^"]*git[[:space:]]+restore[[:space:]]'; then
         
         echo "BLOCKING destructive git operation!" >> /tmp/git-destructive-debug.log
         cat << 'EOFINNER'

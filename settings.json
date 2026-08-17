@@ -1,5 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:medium.com)",
+      "mcp__trello__trello_create_checklist",
+      "mcp__trello__create_card",
+      "mcp__trello__trello_add_check_item",
+      "mcp__trello__trello_search",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.windcave.com)",
+      "mcp__trello__list_boards",
+      "mcp__trello__get_lists",
+      "mcp__trello__trello_get_list_cards",
+      "mcp__trello__update_card",
+      "WebFetch(domain:supabase.com)",
+      "mcp__user-chat",
+      "mcp__tmux-workers"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "auto"
+  },
+  "model": "claude-opus-4-6[1m]",
   "hooks": {
     "PreToolUse": [
       {
@@ -11,15 +34,7 @@
           },
           {
             "type": "command",
-            "command": "/home/io/.claude/hooks/block-extract-css.sh"
-          },
-          {
-            "type": "command",
             "command": "/home/io/.claude/hooks/only-allow-claude-branch.sh"
-          },
-          {
-            "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-classes-file.sh"
           },
           {
             "type": "command",
@@ -60,10 +75,6 @@
           },
           {
             "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-edits.sh"
-          },
-          {
-            "type": "command",
             "command": "/home/io/.claude/hooks/block-eslint-disable.sh"
           }
         ]
@@ -77,15 +88,7 @@
           },
           {
             "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-edits.sh"
-          },
-          {
-            "type": "command",
             "command": "/home/io/.claude/hooks/block-eslint-disable.sh"
-          },
-          {
-            "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-classes-file.sh"
           }
         ]
       },
@@ -98,15 +101,7 @@
           },
           {
             "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-edits.sh"
-          },
-          {
-            "type": "command",
             "command": "/home/io/.claude/hooks/block-eslint-disable.sh"
-          },
-          {
-            "type": "command",
-            "command": "/home/io/.claude/hooks/block-css-classes-file.sh"
           }
         ]
       }
@@ -117,7 +112,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mpv --no-video --really-quiet /home/io/.claude/hooks/finished.wav"
+            "command": "timeout 2 mpv --no-video --really-quiet /home/io/.claude/hooks/finished.wav &"
           }
         ]
       }
@@ -128,17 +123,79 @@
         "hooks": [
           {
             "type": "command",
-            "command": "mpv --no-video --really-quiet /home/io/.claude/hooks/stopignoringme.wav"
+            "command": "timeout 2 mpv --no-video --really-quiet /home/io/.claude/hooks/stopignoringme.wav &"
           }
         ]
       }
     ]
   },
+  "worktree": {
+    "baseRef": "head"
+  },
   "statusLine": {
     "type": "command",
     "command": "/home/io/.bun/bin/bunx ccstatusline@latest"
   },
-  "alwaysThinkingEnabled": false,
+  "enabledPlugins": {
+    "frontend-design@claude-code-plugins": true,
+    "security-guidance@claude-code-plugins": true,
+    "perception-first-design@perception-first-design": true,
+    "primevue@primeui": true
+  },
+  "extraKnownMarketplaces": {
+    "perception-first-design": {
+      "source": {
+        "source": "github",
+        "repo": "skovalik/perception-first-design"
+      }
+    },
+    "primeui": {
+      "source": {
+        "source": "github",
+        "repo": "primefaces/primeui-plugins"
+      }
+    }
+  },
+  "outputStyle": "Concise",
+  "autoUpdatesChannel": "latest",
+  "tui": "default",
+  "voice": {
+    "enabled": true,
+    "mode": "hold"
+  },
+  "skipWorkflowUsageWarning": true,
+  "theme": "dark",
+  "remoteControlAtStartup": false,
+  "agentPushNotifEnabled": true,
+  "autoMode": {
+    "environment": [
+      "### Org-wide",
+      "**Organization**: None configured",
+      "**Cloud provider(s)**: None configured",
+      "**Repository visibility**: assume private unless the remote host and repo name indicate otherwise, or a visibility check in the transcript shows public — this repo has no configured git remote, so treat it as a local-only private working copy",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Secrets management**: None configured — repo .gitignore excludes `.env` and `.chat-token`, treat these as local secret files never to be committed or displayed",
+      "**Default / protected branches**: not queryable (no git remote configured; gh lookup could not derive org/repo)",
+      "**CI/CD deploy targets**: None configured",
+      "**Network posture**: None configured",
+      "**Source control**: The trusted repo (local working copy at /home/io/WebstormProjects/agent-orchestrator) — no remotes configured, no additional orgs configured",
+      "**Trusted internal domains**: None configured",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar — includes local `.env` and `.chat-token` files in this repo",
+      "**Data retention / declassification**: None configured",
+      "**Sensitive remote targets**: any namespace, host, or container whose name carries `prod` or `production` as a whole word or name segment (hyphen/underscore/dot-delimited — e.g. matches `prod-db`, not `producer`)",
+      "**Protected deployment namespaces / environments**: None configured — fall back to the Sensitive remote targets heuristic",
+      "**Protected IaC scopes**: IAM, RBAC, networking, quota, and node-pool resources; anything whose name or tag carries `prod` or `production` as a whole word or name segment",
+      "### User-specific",
+      "**Primary use of Claude Code**: software development — this project is a Fable orchestration agent (agent-orchestrator) coordinating claude-code workers via tmux and a self-hosted chat service",
+      "**Trusted repo**: The local git working copy at /home/io/WebstormProjects/agent-orchestrator (no remotes configured)",
+      "**Org-specific CLIs**: None configured — note frequent personal shell aliases (cg, ct, gc, c) seen in shell history, but these are unverified personal shortcuts, not org tooling",
+      "routine under /home/io/WebstormProjects/agent-orchestrator/ prefix"
+    ]
+  },
+  "voiceEnabled": true,
   "feedbackSurveyState": {
     "lastShownTime": 1754024425834
   }

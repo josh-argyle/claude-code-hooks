@@ -1,0 +1,42 @@
+{
+  "anthropic-agent-skills": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/skills"
+    },
+    "installLocation": "/home/io/.claude/plugins/marketplaces/anthropic-agent-skills",
+    "lastUpdated": "2026-08-17T06:14:04.956Z"
+  },
+  "claude-code-plugins": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-code"
+    },
+    "installLocation": "/home/io/.claude/plugins/marketplaces/claude-code-plugins",
+    "lastUpdated": "2026-08-17T06:14:05.473Z"
+  },
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/home/io/.claude/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-08-17T06:14:03.172Z"
+  },
+  "perception-first-design": {
+    "source": {
+      "source": "github",
+      "repo": "skovalik/perception-first-design"
+    },
+    "installLocation": "/home/io/.claude/plugins/marketplaces/perception-first-design",
+    "lastUpdated": "2026-05-12T22:10:26.632Z"
+  },
+  "primeui": {
+    "source": {
+      "source": "github",
+      "repo": "primefaces/primeui-plugins"
+    },
+    "installLocation": "/home/io/.claude/plugins/marketplaces/primeui",
+    "lastUpdated": "2026-07-16T22:44:44.770Z"
+  }
+}
