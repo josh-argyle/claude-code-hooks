@@ -29,3 +29,7 @@ If provided, pass it as the focus to each `/subrev` round (e.g. `/subrev 5 $ARGU
 5. **Repeat from step 2** until the plan passes. Do not ask the user between rounds — keep cycling automatically (per feedback memory).
 
 6. **When the plan passes**, tell the user it's ready and remind them they can proceed with implementation.
+
+## Model
+
+Unless the user explicitly specifies a different model, default to using **sonnet** for the review agents.
